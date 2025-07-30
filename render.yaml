@@ -1,7 +1,9 @@
 services:
   - type: web
-    name: AIssistant-Alarcon
+    # Nombre del servicio para Render. Cámbialo si quieres en la UI de Render.
+    name: ia-factory-alex
     runtime: python
     plan: starter
-    buildCommand: pip install --no-cache-dir -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port 8000
+    buildCommand: "pip install -r requirements.txt"
+    # El comando de inicio ahora usa la variable $PORT que Render proporciona.
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
