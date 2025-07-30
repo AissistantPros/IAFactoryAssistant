@@ -1,0 +1,72 @@
+# info_ia_factory.yaml
+# Información sobre IA Factory Cancun y el asistente Alex.
+
+informacion_empresa:
+  nombre_empresa: "IA Factory Cancun"
+  actividad_principal: "Agencia de servicios de automatización con agentes y snippets de IA para potenciar empresas."
+  descripcion: >
+    IA Factory Cancun es una empresa fundada por Esteban Reyna, un experto en marketing digital que vio el futuro en la inteligencia artificial. 
+    Nos adelantamos al mercado para ayudar a las empresas a automatizar tareas repetitivas y a potenciar sus operaciones existentes. 
+    Integramos nuestros agentes de IA con los sistemas que ya usas (CRMs, sistemas de contabilidad, etc.) para darles superpoderes.
+  contacto:
+    nombre: "Esteban Reyna"
+    rol: "CEO y Fundador"
+    telefono_principal: "9982137477"
+    whatsapp: "9982137477"
+    email: "aissistant.auto@gmail.com"
+  ubicacion:
+    ciudad: "Cancún, Quintana Roo"
+    detalle: "Operamos de forma remota y ofrecemos servicios a nivel nacional e internacional."
+  horarios:
+    disponibilidad: "24/7 gracias a nuestro equipo de agentes de IA."
+  metodos_pago:
+    - "Efectivo"
+    - "Transferencia bancaria"
+    - "Tarjeta de crédito (Visa, Mastercard, American Express)"
+    - "Tarjeta de débito"
+  redes_sociales:
+    sitio_web: "https://iafactorycancun.com"
+
+servicios:
+  titulo: "Agentes y Snippets con Inteligencia Artificial"
+  descripcion_general: >
+    Creamos agentes y snippets de software impulsados por IA. Estos agentes están programados con 'Skills' (habilidades) 
+    para realizar labores específicas en cada empresa. Los conectamos a tus sistemas actuales (siempre que tengan una API o similar) 
+    para que puedan llamar por teléfono, contestar WhatsApp, gestionar redes sociales, analizar datos y mucho más.
+  plan_base:
+    nombre: "Agente Base"
+    precio_mensual: "4,800 pesos"
+    incluye:
+      - "Recepción de llamadas telefónicas."
+      - "Gestión de agenda y citas."
+      - "2 Skills personalizadas sin costo extra."
+      - "500 conversaciones de texto (WhatsApp, etc.)."
+      - "1,000 minutos de llamadas."
+      - "Entrenamiento ultra-personalizado sobre tu negocio."
+      - "Reportes de mensajes y llamadas."
+      - "Mantenimiento y actualizaciones constantes."
+  skills_adicionales:
+    descripcion: >
+      Podemos agregar habilidades específicas (Skills) para que el agente haga exactamente lo que necesitas. Cada Skill tiene un costo 
+      adicional que depende de su complejidad.
+    ejemplos:
+      - "Conexión a un CRM para gestionar leads."
+      - "Integración con sistemas de contabilidad para generar reportes."
+      - "Creación de presentaciones a partir de datos."
+    rango_precios: "Desde $300 hasta $2,500 pesos por Skill, dependiendo de la complejidad."
+
+proceso_desarrollo:
+  pasos:
+    - paso: 1
+      nombre: "Reunión y Descubrimiento"
+      descripcion: "Nos reunimos contigo para entender a fondo las necesidades y procesos de tu empresa. Identificamos las mejores oportunidades para automatizar."
+    - paso: 2
+      nombre: "Acceso y Configuración"
+      descripcion: "Una vez definido el alcance, solicitamos los accesos necesarios a tus sistemas (APIs, cuentas de Meta, Google, etc.)."
+    - paso: 3
+      nombre: "Desarrollo y Pruebas Beta"
+      descripcion: "En 1 o 2 semanas, te entregamos una versión beta del agente para que la pruebes exhaustivamente y nos des tu feedback."
+    - paso: 4
+      nombre: "Lanzamiento y Operación"
+      descripcion: "Implementamos los ajustes finales. Tu agente estará listo para trabajar en aproximadamente 2 a 3 semanas desde el inicio."
+  mejora_continua: "El costo de la mensualidad incluye mejoras, cambios y ajustes constantes, siempre y cuando no se agreguen Skills nuevas."
