@@ -324,22 +324,10 @@ class CallOrchestrator:
     
     def _generate_greeting(self) -> str:
         """
-        🎨 Genera el saludo según la hora
+        🎨 Genera el saludo inicial.
         """
-        try:
-            now = get_cancun_time()
-            hour = now.hour
-            
-            if 5 <= hour < 12:
-                return "¡Buenos días! Soy Dany, Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?. For English, say -English please-"
-            elif 12 <= hour < 19:
-                return "¡Buenas tardes! Soy Dany, Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?. For English, say -English please-"
-            else:
-                return "¡Buenas noches! Soy Dany, Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?. For English, say -English please-"
-                
-        except Exception as e:
-            logger.error(f"Error generando saludo: {e}")
-            return "Consultorio del Doctor Wilfrido Alarcón, Soy Dany, Inteligencia Artificial. ¿Cómo puedo ayudarle?. For English, say -English please-"
+        # El saludo es ahora fijo y no depende de la hora del día.
+        return "Hola, gracias por comunicarte con IA Factory Cancún. Mi nombre es Alex, ¿con quién tengo el gusto de hablar?"
     
     async def _on_greeting_complete(self) -> None:
         """
