@@ -327,7 +327,7 @@ class CallOrchestrator:
         🎨 Genera el saludo inicial.
         """
         # El saludo es ahora fijo y no depende de la hora del día.
-        return "Hola, gracias por comunicarte con IA Factory Cancún. Mi nombre es Alex, ¿con quién tengo el gusto de hablar?"
+        return "Hola, gracias por comunicarte con I A Factory Cancún. Mi nombre es Alex, ¿con quién tengo el gusto?. For English say 'English please'"
     
     async def _on_greeting_complete(self) -> None:
         """

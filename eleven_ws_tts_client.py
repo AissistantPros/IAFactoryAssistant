@@ -89,7 +89,7 @@ class ElevenLabsWSClient:
             "style": 0.0,
             #"similarity_boost": 0.4,
             "use_speaker_boost": False,
-            "speed": 1.1,
+            "speed": 1.2,
         }
 
         # Iniciar conexión WebSocket REUTILIZABLE
