@@ -99,15 +99,6 @@ class TwilioHandler:
     
     async def handle_websocket(self, websocket: WebSocket) -> None:
         logger.info("[FUNCIONALIDAD] Nueva conexión WebSocket entrante de Twilio")
-        # --- INICIO: DESACTIVACIÓN TEMPORAL ---
-        # La lógica original ha sido comentada para evitar que este agente
-        # procese llamadas de Twilio hasta que la nueva configuración esté lista.
-        logger.warning("<<<<< MODO DE MANTENIMIENTO: La conexión con Twilio está temporalmente desactivada. >>>>")
-        await websocket.accept()
-        await websocket.close(code=1000, reason="Mantenimiento programado")
-        return # Salir de la función inmediatamente
-        # --- FIN: DESACTIVACIÓN TEMPORAL ---
-        
         t0 = time.perf_counter()
         try:
             await websocket.accept()
