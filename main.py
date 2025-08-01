@@ -17,6 +17,7 @@ import json
 import traceback
 from typing import Optional, Union, List, Dict, Any
 from fastapi import FastAPI, Response, WebSocket, Body, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import time
 
@@ -62,6 +63,24 @@ for noisy_module in [
 
 # ===== FASTAPI APP =====
 app = FastAPI(title="AI Assistant Backend")
+
+# Configurar CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://iafactorycancun.com",
+        "https://www.iafactorycancun.com",
+        "https://iafactory.webstudio.is",
+        "https://*.webstudio.is",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "*"  # Temporalmente permitir todos mientras probamos
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+    max_age=3600,
+)
 
 # ===== VARIABLES DE ENTORNO TWILIO =====
 TWIML_APP_SID = os.getenv("TWIML_APP_SID")
