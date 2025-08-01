@@ -16,9 +16,12 @@ import logging
 import json
 import traceback
 from typing import Optional, Union, List, Dict, Any
-from fastapi import FastAPI, Response, WebSocket, Body, Request
+from fastapi import FastAPI, Response, WebSocket, Body, Request, HTTPException
 from pydantic import BaseModel
 import time
+
+# === TWILIO IMPORTS ===
+from twilio.jwt.client import ClientCapabilityToken
 
 # === NUEVA ARQUITECTURA ===
 from call_orchestrator import CallOrchestrator
@@ -59,6 +62,19 @@ for noisy_module in [
 
 # ===== FASTAPI APP =====
 app = FastAPI(title="AI Assistant Backend")
+
+# ===== VARIABLES DE ENTORNO TWILIO =====
+TWIML_APP_SID = os.getenv("TWIML_APP_SID")
+ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+
+# ===== RATE LIMITING =====
+# Rate limiting global: máximo 15 llamadas totales por día
+global_call_limiter = {
+    "count": 0,
+    "first_call": None,
+    "last_reset": None
+}
 
 # ===== ESTADO GLOBAL =====
 conversation_histories: Dict[str, List[Dict]] = {}
@@ -135,6 +151,69 @@ async def twilio_websocket(websocket: WebSocket):
     orchestrator = CallOrchestrator()
     await orchestrator.handle_call(websocket)
     logger.info(f"[LATENCIA] WebSocket /twilio-websocket completado en {1000*(time.perf_counter()-t0):.1f} ms")
+
+
+@app.get("/api/twilio-token")
+async def get_twilio_token(request: Request):
+    """
+    🔑 Genera un token de acceso para Twilio Voice SDK
+    con rate limiting global (máximo 15 llamadas por día)
+    """
+    logger.info("[FUNCIONALIDAD] Solicitud de token Twilio (GET /api/twilio-token)")
+    t0 = time.perf_counter()
+    
+    # Verificar que tengamos las variables necesarias
+    if not TWIML_APP_SID or not ACCOUNT_SID or not AUTH_TOKEN:
+        logger.error("Faltan variables de entorno de Twilio")
+        raise HTTPException(status_code=500, detail="Configuración incompleta")
+    
+    # Obtener IP del cliente para logging
+    client_ip = request.client.host
+    current_time = time.time()
+    
+    # Rate limiting global - máximo 15 llamadas por día
+    if global_call_limiter["last_reset"] is None:
+        # Primera llamada del día
+        global_call_limiter["count"] = 0
+        global_call_limiter["first_call"] = current_time
+        global_call_limiter["last_reset"] = current_time
+    else:
+        # Verificar si ha pasado un día (86400 segundos = 24 horas)
+        if current_time - global_call_limiter["last_reset"] > 86400:
+            # Reset diario
+            global_call_limiter["count"] = 0
+            global_call_limiter["first_call"] = current_time
+            global_call_limiter["last_reset"] = current_time
+            logger.info("🔄 Rate limiting global reseteado - nuevo día")
+        elif global_call_limiter["count"] >= 15:
+            logger.warning(f"🚫 Límite global diario excedido (15 llamadas) - IP: {client_ip}")
+            raise HTTPException(
+                status_code=429, 
+                detail="Límite diario global excedido (15 llamadas). Intenta mañana."
+            )
+    
+    # Incrementar contador global
+    global_call_limiter["count"] += 1
+    
+    # Generar token
+    capability = ClientCapabilityToken(ACCOUNT_SID, AUTH_TOKEN)
+    
+    # Permitir llamadas salientes usando tu TwiML App
+    capability.allow_client_outgoing(TWIML_APP_SID)
+    
+    # Token válido por 1 hora
+    token = capability.to_jwt(ttl=3600)
+    
+    logger.info(f"Token generado para IP: {client_ip} (llamada #{global_call_limiter['count']}/15 del día)")
+    logger.info(f"[LATENCIA] Token Twilio generado en {1000*(time.perf_counter()-t0):.1f} ms")
+    
+    return {
+        "token": token.decode('utf-8') if isinstance(token, bytes) else token,
+        "expires_in": 3600,
+        "calls_today": global_call_limiter["count"],
+        "remaining_calls": 15 - global_call_limiter["count"],
+        "limit_type": "global_daily"
+    }
 
 
 # ========== ENDPOINTS DE TEXTO (WEBHOOKS) ==========
@@ -377,6 +456,41 @@ async def get_call_status():
         "active_calls": 0,
         "message": "Endpoint en desarrollo"
     }
+
+
+@app.get("/admin/rate-limit-status")
+async def get_rate_limit_status():
+    """
+    📊 Obtiene el estado del rate limiting global
+    
+    Útil para monitorear el uso de llamadas diarias
+    """
+    t0 = time.perf_counter()
+    current_time = time.time()
+    
+    # Calcular tiempo restante hasta el reset
+    time_until_reset = 0
+    if global_call_limiter["last_reset"]:
+        time_since_reset = current_time - global_call_limiter["last_reset"]
+        time_until_reset = max(0, 86400 - time_since_reset)
+    
+    # Calcular porcentaje de uso
+    usage_percentage = (global_call_limiter["count"] / 15) * 100 if global_call_limiter["count"] > 0 else 0
+    
+    status_info = {
+        "calls_today": global_call_limiter["count"],
+        "max_calls_per_day": 15,
+        "remaining_calls": 15 - global_call_limiter["count"],
+        "usage_percentage": round(usage_percentage, 1),
+        "time_until_reset_seconds": int(time_until_reset),
+        "time_until_reset_hours": round(time_until_reset / 3600, 1),
+        "last_reset_timestamp": global_call_limiter["last_reset"],
+        "first_call_today": global_call_limiter["first_call"],
+        "limit_type": "global_daily"
+    }
+    
+    logger.info(f"[LATENCIA] Admin rate-limit-status consultado en {1000*(time.perf_counter()-t0):.1f} ms")
+    return status_info
 
 
 @app.post("/admin/reload-cache")
