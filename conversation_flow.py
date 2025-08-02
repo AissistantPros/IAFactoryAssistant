@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # ===== CONFIGURACIÓN DE TIEMPOS =====
 TIMING_CONFIG = {
     # ⏱️ CRÍTICO: No cambiar sin pruebas exhaustivas
-    "PAUSE_DETECTION": 1.5,        # Reducido de 1.0 a 0.8 segundos
+    "PAUSE_DETECTION": 1.0,        # Reducido de 1.0 a 0.8 segundos
     "PAUSE_DETECTION_FOR_PHONE": 1.5,  # Pausa extendida para números telefónicos
     "MAX_WAIT_TIME": 15.0,          # Máximo espera antes de forzar envío
     "MIN_TEXT_LENGTH": 2,          # Mínimo de caracteres para procesar
