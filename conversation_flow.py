@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # ===== CONFIGURACIÓN DE TIEMPOS =====
 TIMING_CONFIG = {
     # ⏱️ CRÍTICO: No cambiar sin pruebas exhaustivas
-    "PAUSE_DETECTION": 1.0,        # Segundos de silencio = usuario terminó (aumentado para tolerar pausas naturales)
+    "PAUSE_DETECTION": 0.8,        # Reducido de 1.0 a 0.8 segundos
     "PAUSE_DETECTION_FOR_PHONE": 1.5,  # Pausa extendida para números telefónicos
     "MAX_WAIT_TIME": 15.0,          # Máximo espera antes de forzar envío
     "MIN_TEXT_LENGTH": 2,          # Mínimo de caracteres para procesar
@@ -62,6 +62,9 @@ class ConversationState:
     # Métricas
     turn_start_time: Optional[float] = None
     expecting_phone_number: bool = False  # NUEVO: Flag para modo captura de teléfono
+    # NUEVO: Contador de actividad para debugging
+    activity_counter: int = 0
+    last_activity_type: str = ""
 
 
 class ConversationFlow:
@@ -110,6 +113,16 @@ class ConversationFlow:
         # Actualizar tiempos
         self.state.last_activity_time = now
         
+        # Contador y tipo de actividad
+        self.state.activity_counter += 1
+        self.state.last_activity_type = f"{'final' if is_final else 'parcial'}{'_con_texto' if transcript.strip() else '_vacio'}"
+        if self.state.activity_counter % 10 == 0:
+            logger.debug(f"📊 Actividad #{self.state.activity_counter}: {self.state.last_activity_type}")
+        
+        # Reiniciar timer SIEMPRE que llegue actividad
+        self._restart_pause_timer()
+        logger.debug(f"🔄 Timer reiniciado por {'final' if is_final else 'parcial'} {'con texto' if transcript.strip() else 'vacío'}")
+        
         # Si hay texto significativo
         if transcript and transcript.strip():
             logger.debug(f"📝 Transcript: final={is_final}, text='{transcript[:60]}...'")
@@ -121,10 +134,7 @@ class ConversationFlow:
                 self.state.pending_finals.append(transcript.strip())
                 logger.info(f"📥 Final recibido: '{transcript.strip()}'")
                 
-            # Reiniciar timer de pausa
-            self._restart_pause_timer()
-        
-        # Marcar si el último parcial fue vacío (para lógica de pausa)
+        # Marcar si el último parcial fue vacío (para debugging)
         self.state.last_partial_was_empty = not is_final and not transcript.strip()
     
     def _restart_pause_timer(self) -> None:
@@ -160,19 +170,21 @@ class ConversationFlow:
                 if self.state.expecting_phone_number 
                 else TIMING_CONFIG["PAUSE_DETECTION"]
             )
-            
-            logger.debug(f"⏲️ Timer de pausa iniciado ({pause_duration}s) - Modo teléfono: {self.state.expecting_phone_number}")
+            # LOG MEJORADO
+            pending_count = len(self.state.pending_finals)
+            pending_text = " ".join(self.state.pending_finals)[:50] + "..." if self.state.pending_finals else "NADA"
+            logger.debug(f"⏲️ Timer iniciado ({pause_duration}s) - Acumulados: {pending_count} finales - Preview: '{pending_text}'")
             
             await asyncio.sleep(pause_duration)
             
-            logger.debug("⏸️ Pausa detectada - procesando mensaje")
+            # LOG AL COMPLETAR
+            logger.info(f"⏸️ PAUSA DETECTADA - Procesando {len(self.state.pending_finals)} finales acumulados")
             t0 = time.perf_counter()
-            logger.debug("[FUNCIONALIDAD] Pausa detectada, preparando TTS y procesando con LLM...")
             await self._process_accumulated_text()
-            logger.debug(f"[LATENCIA] Proceso de pausa (preparar TTS + LLM) completado en {1000*(time.perf_counter()-t0):.1f} ms")
+            logger.debug(f"[LATENCIA] Proceso completado en {1000*(time.perf_counter()-t0):.1f} ms")
             
         except asyncio.CancelledError:
-            logger.debug("⏲️ Timer cancelado (usuario sigue hablando)")
+            logger.debug(f"⏲️ Timer cancelado - Usuario sigue hablando (había {len(self.state.pending_finals)} finales acumulados)")
     
     async def prepare_tts_ws(self):
         """
