@@ -558,6 +558,15 @@ class AudioManager:
         except Exception as e:
             logger.debug(f"No se pudo enviar mark end_of_tts: {e}")
     
+    async def on_audio_received(self):
+        """
+        📊 Notifica que se recibió audio del usuario
+        Llamado por TwilioHandler cuando llega audio
+        """
+        # Notificar al ConversationFlow que hay actividad de audio
+        if hasattr(self, 'conversation') and self.conversation:
+            self.conversation.on_audio_activity()
+    
     # ========== LIMPIEZA Y CIERRE ==========
     
     async def shutdown(self) -> None:

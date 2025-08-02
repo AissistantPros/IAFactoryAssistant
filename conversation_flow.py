@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # ===== CONFIGURACIÓN DE TIEMPOS =====
 TIMING_CONFIG = {
     # ⏱️ CRÍTICO: No cambiar sin pruebas exhaustivas
-    "PAUSE_DETECTION": 3.0,        # Reducido de 1.0 a 0.8 segundos
+    "PAUSE_DETECTION": 1.5,        # Reducido de 1.0 a 0.8 segundos
     "PAUSE_DETECTION_FOR_PHONE": 1.5,  # Pausa extendida para números telefónicos
     "MAX_WAIT_TIME": 15.0,          # Máximo espera antes de forzar envío
     "MIN_TEXT_LENGTH": 2,          # Mínimo de caracteres para procesar
@@ -65,6 +65,9 @@ class ConversationState:
     # NUEVO: Contador de actividad para debugging
     activity_counter: int = 0
     last_activity_type: str = ""
+    # NUEVO: Tracking de actividad de audio
+    last_audio_chunk_time: float = 0.0
+    audio_chunks_since_last_transcript: int = 0
 
 
 class ConversationFlow:
@@ -112,6 +115,8 @@ class ConversationFlow:
         
         # Actualizar tiempos
         self.state.last_activity_time = now
+        # Resetear contador de chunks de audio
+        self.state.audio_chunks_since_last_transcript = 0
         
         # Contador y tipo de actividad
         self.state.activity_counter += 1
@@ -498,3 +503,20 @@ class ConversationFlow:
         # Si hay un timer activo, reiniciarlo con el nuevo tiempo
         if self.state.pause_timer and not self.state.pause_timer.done():
             self._restart_pause_timer()
+
+    def on_audio_activity(self) -> None:
+        """
+        📊 Notificación de que llegó audio del usuario
+        Esto ayuda a detectar que el usuario sigue hablando
+        incluso si Deepgram no envía transcripciones
+        """
+        now = time.perf_counter()
+        self.state.last_audio_chunk_time = now
+        self.state.audio_chunks_since_last_transcript += 1
+        # Si han pasado más de 0.5s desde la última transcripción
+        # pero seguimos recibiendo audio, reiniciar el timer
+        time_since_last_transcript = now - self.state.last_activity_time
+        if time_since_last_transcript > 0.5 and self.state.audio_chunks_since_last_transcript > 10:
+            logger.debug(f"🎤 Audio activo detectado sin transcripción por {time_since_last_transcript:.1f}s - reiniciando timer")
+            self._restart_pause_timer()
+            self.state.audio_chunks_since_last_transcript = 0

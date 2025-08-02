@@ -217,24 +217,20 @@ class TwilioHandler:
     async def _handle_media(self, data: Dict[str, Any]) -> None:
         """
         🎵 Maneja el evento MEDIA (chunk de audio)
-        
-        Decodifica el audio base64 y lo pasa al handler
         """
         media_data = data.get("media", {})
         payload_b64 = media_data.get("payload")
-        
         if not payload_b64:
             return
-        
-        # Decodificar audio
         try:
             import base64
             audio_bytes = base64.b64decode(payload_b64)
-            
+            # NUEVO: Notificar actividad de audio
+            if hasattr(self, 'audio_manager') and self.audio_manager:
+                await self.audio_manager.on_audio_received()
             # Llamar handler externo
             if self.on_media:
                 await self.on_media(audio_bytes)
-                
         except Exception as e:
             logger.error(f"❌ Error decodificando audio: {e}")
     

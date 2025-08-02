@@ -89,11 +89,15 @@ class DeepgramSTTStreamer:
                 sample_rate=8000,
                 channels=1,
                 smart_format=True,
-                interim_results=True, 
-                endpointing=False, 
-                utterance_end_ms="2500", 
-                vad_events=False, 
+                interim_results=True,
+                endpointing=False,
+                utterance_end_ms="1000",  # REDUCIDO de 2500 a 1000
+                vad_events=True,           # CAMBIAR a True para recibir eventos VAD
+                filler_words=True,         # AGREGAR para mejor detección
+                punctuate=True,            # AGREGAR para mejor formato
             )
+            # Agregar handler para SpeechStarted
+            self.dg_connection.on(LiveTranscriptionEvents.SpeechStarted, self._on_speech_started)
 
             await self.dg_connection.start(options)
           
@@ -236,3 +240,10 @@ class DeepgramSTTStreamer:
                 logger.error(f"Error al llamar a on_disconnect_callback desde _on_error: {e}")
         else:
             logger.info("Evento _on_error de Deepgram procesado. No hay callback de desconexión configurado.")
+
+    async def _on_speech_started(self, _connection, speech_data, *args, **kwargs):
+        """Evento cuando Deepgram detecta inicio de habla"""
+        logger.debug("🎤 VAD: Habla detectada por Deepgram")
+        # Notificar al callback con una señal especial
+        if self.callback:
+            self.callback("", False)  # Transcript vacío = señal de actividad
