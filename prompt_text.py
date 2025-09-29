@@ -251,13 +251,17 @@ class LlamaPromptEngine:
         return prompt
 
 
-def generate_openai_prompt(conversation_history: List[Dict]) -> List[Dict]:
+def generate_openai_prompt(
+    conversation_history: List[Dict],
+    client_info: Optional[Dict] = None
+) -> List[Dict]:
     """
     Función compatible para generar prompts en formato OpenAI.
     Convierte el historial de conversación en mensajes del sistema.
     
     Args:
         conversation_history: Lista de mensajes de conversación
+        client_info: Información del cliente (nombre, canal, resumen_anterior, etc.)
         
     Returns:
         Lista de mensajes en formato OpenAI
@@ -280,6 +284,32 @@ def generate_openai_prompt(conversation_history: List[Dict]) -> List[Dict]:
     
     # Construir el prompt del sistema
     system_content = f"# FECHA Y HORA ACTUAL\nHoy es {fecha_actual}. Hora actual en Cancún: {now.strftime('%H:%M')}.\nIMPORTANTE: Todas las citas deben ser para {now.year} o años posteriores.\n\n"
+
+    # ========== NUEVO: AGREGAR CONTEXTO DEL CLIENTE ==========
+    if client_info:
+        system_content += "# INFORMACIÓN DEL CLIENTE\n"
+        # Nombre
+        if client_info.get('nombre'):
+            system_content += f"- El cliente se llama: **{client_info['nombre']}**\n"
+        # Canal
+        if client_info.get('canal'):
+            system_content += f"- Canal de contacto: {client_info['canal']}\n"
+        # Empresa
+        if client_info.get('empresa'):
+            system_content += f"- Empresa: {client_info['empresa']}\n"
+        # Teléfono
+        if client_info.get('telefono'):
+            system_content += f"- Teléfono registrado: {client_info['telefono']}\n"
+        # Email
+        if client_info.get('email'):
+            system_content += f"- Email: {client_info['email']}\n"
+        # Resumen anterior (lo más importante)
+        if client_info.get('resumen_anterior'):
+            system_content += f"\n## CONTEXTO DE CONVERSACIONES ANTERIORES\n{client_info['resumen_anterior']}\n"
+            system_content += "\nIMPORTANTE: Este es un cliente recurrente. Salúdalo como tal y referencia el contexto previo si es relevante.\n"
+        system_content += "\n"
+    # ========== FIN DEL NUEVO CÓDIGO ==========
+
     system_content += PROMPT_UNIFICADO
     
     # Crear mensaje del sistema

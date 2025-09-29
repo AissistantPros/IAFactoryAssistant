@@ -12,6 +12,7 @@ Usa la nueva arquitectura modular en lugar del monolítico tw_utils.
 """
 
 import os
+import asyncio
 import logging
 import json
 import traceback
@@ -20,6 +21,7 @@ from fastapi import FastAPI, Response, WebSocket, Body, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import time
+import httpx
 
 # === TWILIO IMPORTS ===
 from twilio.jwt.client import ClientCapabilityToken
@@ -98,6 +100,9 @@ global_call_limiter = {
 # ===== ESTADO GLOBAL =====
 conversation_histories: Dict[str, List[Dict]] = {}
 
+# ===== ESTADO DE CHATS DE TEXTO (TIMEOUTS/PULSOS) =====
+TEXT_CHAT_STATE: Dict[str, Dict[str, Any]] = {}
+
 # ===== RUTAS =====
 app.include_router(consultorio_router, prefix="/api_v1")
 
@@ -120,6 +125,13 @@ async def startup_event():
     
     logger.info("🚀 Backend iniciado - Nueva arquitectura modular activa")
     logger.info(f"[LATENCIA] Backend startup completado en {1000*(time.perf_counter()-t0):.1f} ms")
+
+    # Iniciar monitor de chats de texto (pulsos a 20 min, cierre a 60 min)
+    try:
+        asyncio.create_task(_background_text_chat_monitor())
+        logger.info("💬 Monitor de chats de texto iniciado")
+    except Exception as e:
+        logger.error(f"No se pudo iniciar el monitor de chats de texto: {e}")
 
 
 @app.get("/")
@@ -245,6 +257,12 @@ class N8NMessage(BaseModel):
     user_name: Optional[str] = None
     phone: Optional[str] = None
     message_text: Optional[str] = None
+    
+    # NUEVOS CAMPOS para contexto
+    email: Optional[str] = None
+    empresa: Optional[str] = None
+    canal: Optional[str] = None  # "whatsapp", "instagram", "facebook", etc.
+    resumen_anterior: Optional[str] = None  # Resumen de última interacción
 
 
 @app.post("/webhook/n8n_message")
@@ -272,12 +290,38 @@ async def receive_n8n_message(message_data: N8NMessage):
     history = conversation_histories[conversation_id]
     history.append({"role": "user", "content": current_message})
     
+    # Actualizar estado de conversación para timeouts/pulsos
+    state = TEXT_CHAT_STATE.get(conversation_id) or {
+        "pulse_sent": False,
+        "ended": False,
+        "client_info": {},
+    }
+    state["last_activity_ts"] = time.time()
+    TEXT_CHAT_STATE[conversation_id] = state
+
+    # ========== NUEVO: PREPARAR CONTEXTO DEL CLIENTE ==========
+    client_info = {
+        "nombre": message_data.user_name,
+        "telefono": message_data.phone,
+        "email": getattr(message_data, "email", None),
+        "empresa": getattr(message_data, "empresa", None),
+        "canal": (getattr(message_data, "canal", None) or message_data.platform),
+        "resumen_anterior": getattr(message_data, "resumen_anterior", None)
+    }
+    client_info = {k: v for k, v in client_info.items() if v is not None}
+    # Guardar/actualizar client_info en estado
+    state_client = state.get("client_info", {})
+    state_client.update(client_info)
+    state["client_info"] = state_client
+    # ========== FIN DEL NUEVO CÓDIGO ==========
+
     # Procesar con IA de texto
     try:
         response_data = process_text_message(
             user_id=user_id,
             current_user_message=current_message,
-            history=history
+            history=history,
+            client_info=client_info
         )
         
         ai_reply = response_data.get("reply_text", "No pude obtener una respuesta.")
@@ -293,8 +337,26 @@ async def receive_n8n_message(message_data: N8NMessage):
     if ai_reply:
         history.append({"role": "assistant", "content": ai_reply})
     
+    # Si la IA solicitó terminar la conversación, disparar cierre
+    end_chat = bool(response_data.get("end_chat"))
+    end_reason = response_data.get("end_reason")
+    if end_chat and not state.get("ended"):
+        state["ended"] = True
+        try:
+            await _end_text_conversation(conversation_id, state, reason=end_reason or "assistant_requested_end")
+        except Exception as e:
+            logger.error(f"Error en _end_text_conversation: {e}", exc_info=True)
+
     logger.info(f"[LATENCIA] Mensaje de texto procesado en {1000*(time.perf_counter()-t0):.1f} ms")
-    return {"reply_text": ai_reply, "status": status}
+    
+    # ========== NUEVO: AGREGAR CONVERSACIÓN COMPLETA A LA RESPUESTA ==========
+    return {
+        "reply_text": ai_reply,
+        "status": status,
+        "conversation_history": history,
+        "end_chat": end_chat,
+        "end_reason": end_reason
+    }
 
 
 # ========== APIS DE HERRAMIENTAS ==========
@@ -563,6 +625,93 @@ async def health_check():
     
     logger.info(f"[LATENCIA] Admin health-check completado en {1000*(time.perf_counter()-t0):.1f} ms")
     return health_status
+
+
+# =================== UTILIDADES PARA CHATS DE TEXTO ===================
+
+async def _background_text_chat_monitor() -> None:
+    """
+    Monitorea inactividad de chats de texto y ejecuta:
+    - Pulse a los 20 minutos sin actividad
+    - Cierre a los 60 minutos sin actividad
+    """
+    PULSE_AFTER_SECONDS = 20 * 60
+    CLOSE_AFTER_SECONDS = 60 * 60
+    CHECK_INTERVAL = 60
+
+    while True:
+        try:
+            await asyncio.sleep(CHECK_INTERVAL)
+            now = time.time()
+            for conversation_id in list(TEXT_CHAT_STATE.keys()):
+                state = TEXT_CHAT_STATE.get(conversation_id) or {}
+                if state.get("ended"):
+                    continue
+                last_ts = state.get("last_activity_ts")
+                if not last_ts:
+                    continue
+                idle = now - last_ts
+                if idle >= PULSE_AFTER_SECONDS and not state.get("pulse_sent"):
+                    try:
+                        await _send_text_pulse(conversation_id, state)
+                        state["pulse_sent"] = True
+                    except Exception as e:
+                        logger.error(f"Error enviando pulse: {e}")
+                if idle >= CLOSE_AFTER_SECONDS:
+                    state["ended"] = True
+                    try:
+                        await _end_text_conversation(conversation_id, state, reason="timeout_inactivity")
+                    except Exception as e:
+                        logger.error(f"Error cerrando conversación por timeout: {e}")
+        except asyncio.CancelledError:
+            logger.info("Monitor de chats de texto cancelado")
+            break
+        except Exception as e:
+            logger.error(f"Error en monitor de chats de texto: {e}")
+
+
+async def _send_text_pulse(conversation_id: str, state: Dict[str, Any]) -> None:
+    """
+    Envía un 'pulse' como mensaje adicional en la conversación existente.
+    Simplemente añade el mensaje al historial como si fuera una respuesta automática del asistente.
+    """
+    message = "Sigo en línea si quieres continuar la conversación."
+    
+    # Añadir el pulse al historial de la conversación
+    if conversation_id in conversation_histories:
+        conversation_histories[conversation_id].append({
+            "role": "assistant", 
+            "content": message
+        })
+        logger.info(f"Pulse añadido al historial de {conversation_id}: '{message}'")
+    else:
+        logger.warning(f"No se encontró historial para {conversation_id}")
+
+
+async def _end_text_conversation(conversation_id: str, state: Dict[str, Any], reason: str) -> None:
+    """
+    Envía a n8n el historial y datos de la conversación y limpia el estado local.
+    Requiere variable de entorno N8N_CHAT_END_WEBHOOK_URL.
+    """
+    url = os.getenv("N8N_CHAT_END_WEBHOOK_URL")
+    history = conversation_histories.get(conversation_id, [])
+    payload = {
+        "type": "end_conversation",
+        "conversation_id": conversation_id,
+        "reason": reason,
+        "client_info": state.get("client_info", {}),
+        "history": history,
+    }
+    if url:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(url, json=payload)
+            if resp.status_code >= 300:
+                logger.error(f"End webhook status {resp.status_code}: {resp.text}")
+            else:
+                logger.info(f"Resumen de conversación enviado a n8n para {conversation_id}")
+    else:
+        logger.info("N8N_CHAT_END_WEBHOOK_URL no configurada; se omite envío a n8n")
+    TEXT_CHAT_STATE.pop(conversation_id, None)
 
 
 # ========== MANEJO DE ERRORES GLOBAL ==========

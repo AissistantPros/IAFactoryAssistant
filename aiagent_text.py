@@ -159,8 +159,48 @@ def process_text_message(
             "status": "error_init_openai",
         }
 
-    # 1) Construimos el prompt
-    messages_for_api = generate_openai_prompt(history) + [
+    # 1) Normalizar y filtrar client_info: solo claves conocidas y valores no vacíos
+    allowed_keys = {"nombre", "telefono", "email", "empresa", "canal", "resumen_anterior"}
+    filtered_client_info = None
+    if client_info:
+        filtered_client_info = {k: v for k, v in client_info.items() if k in allowed_keys and v}
+        if filtered_client_info.get("resumen_anterior"):
+            # Evitar prompts enormes
+            filtered_client_info["resumen_anterior"] = str(filtered_client_info["resumen_anterior"])[:500]
+
+    # 2) Si no hay historial, inyectar un system prompt con contexto básico del cliente
+    initial_history = list(history or [])
+    if not initial_history and filtered_client_info:
+        context_parts = []
+        if filtered_client_info.get("canal"):
+            context_parts.append(f"El usuario contacta desde {filtered_client_info.get('canal')}.")
+        nombre = filtered_client_info.get("nombre")
+        if nombre:
+            context_parts.append(f"Nombre del usuario: {nombre}.")
+        telefono = filtered_client_info.get("telefono")
+        if telefono:
+            context_parts.append(f"Teléfono: {telefono}.")
+        email = filtered_client_info.get("email")
+        if email:
+            context_parts.append(f"Email: {email}.")
+        empresa = filtered_client_info.get("empresa")
+        if empresa:
+            context_parts.append(f"Empresa: {empresa}.")
+        resumen = filtered_client_info.get("resumen_anterior")
+        if resumen:
+            context_parts.append(f"Resumen de conversación previa: {resumen}.")
+        if context_parts:
+            system_context = (
+                "Eres AIFy, asistente de IA Factory Cancún. Usa este contexto inicial para personalizar la interacción.\n"
+                + "\n".join(context_parts)
+            )
+            initial_history.append({"role": "system", "content": system_context})
+
+    # 3) Construimos el prompt CON CONTEXTO (si no hay info, no inventamos nada)
+    messages_for_api = generate_openai_prompt(
+        initial_history,
+        client_info=filtered_client_info
+    ) + [
         {"role": "user", "content": current_user_message}
     ]
 
@@ -214,6 +254,18 @@ def process_text_message(
             tool_call = tool_calls[0]
             func_name = tool_call.function.name
             func_args = json.loads(tool_call.function.arguments or "{}")
+
+            # Detectar petición de finalizar conversación vía tool virtual end_conversation
+            if func_name == "end_conversation":
+                reason = func_args.get("reason") if isinstance(func_args, dict) else None
+                ai_final_response_content = ""
+                status_message = "success_end_conversation"
+                return {
+                    "reply_text": ai_final_response_content,
+                    "status": status_message,
+                    "end_chat": True,
+                    "end_reason": reason or "assistant_requested_end",
+                }
 
             # Ejecutamos la función real con timeout
             if func_name in tool_functions_map:
@@ -277,14 +329,40 @@ def process_text_message(
             ai_final_response_content = (content or "").strip()
             status_message = "success_no_tool"
 
+        # Detección de final de conversación por marcador explícito del asistente
+        end_chat = False
+        end_reason = None
+        if ai_final_response_content:
+            import re
+            # Detectar marcador de cierre por texto especial o tool inline
+            if ai_final_response_content.strip() == "__END_CHAT__":
+                end_chat = True
+                ai_final_response_content = ""
+                end_reason = "assistant_requested_end"
+            else:
+                m = re.search(r"\[end_conversation\((.*?)\)\]", ai_final_response_content, flags=re.IGNORECASE)
+                if m:
+                    end_chat = True
+                    # Extraer razón si viene como reason="..."
+                    args_str = m.group(1)
+                    m_reason = re.search(r"reason\s*=\s*\"([^\"]+)\"", args_str)
+                    end_reason = m_reason.group(1) if m_reason else None
+                    # Eliminar el marcador del texto visible
+                    ai_final_response_content = re.sub(r"\s*\[end_conversation\(.*?\)\]\s*", "", ai_final_response_content, flags=re.IGNORECASE).strip()
+
         print(
             f"[{conv_id_for_logs}] Respuesta final: '{ai_final_response_content}'"
         )
 
-        return {
+        result: Dict[str, Any] = {
             "reply_text": ai_final_response_content,
             "status": status_message,
         }
+        if end_chat:
+            result["end_chat"] = True
+            if end_reason:
+                result["end_reason"] = end_reason
+        return result
 
     except Exception as e_main_process:
         import traceback
