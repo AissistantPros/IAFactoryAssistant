@@ -159,47 +159,10 @@ def process_text_message(
             "status": "error_init_openai",
         }
 
-    # 1) Normalizar y filtrar client_info: solo claves conocidas y valores no vacíos
-    allowed_keys = {"nombre", "telefono", "email", "empresa", "canal", "resumen_anterior"}
-    filtered_client_info = None
-    if client_info:
-        filtered_client_info = {k: v for k, v in client_info.items() if k in allowed_keys and v}
-        if filtered_client_info.get("resumen_anterior"):
-            # Evitar prompts enormes
-            filtered_client_info["resumen_anterior"] = str(filtered_client_info["resumen_anterior"])[:500]
-
-    # 2) Si no hay historial, inyectar un system prompt con contexto básico del cliente
-    initial_history = list(history or [])
-    if not initial_history and filtered_client_info:
-        context_parts = []
-        if filtered_client_info.get("canal"):
-            context_parts.append(f"El usuario contacta desde {filtered_client_info.get('canal')}.")
-        nombre = filtered_client_info.get("nombre")
-        if nombre:
-            context_parts.append(f"Nombre del usuario: {nombre}.")
-        telefono = filtered_client_info.get("telefono")
-        if telefono:
-            context_parts.append(f"Teléfono: {telefono}.")
-        email = filtered_client_info.get("email")
-        if email:
-            context_parts.append(f"Email: {email}.")
-        empresa = filtered_client_info.get("empresa")
-        if empresa:
-            context_parts.append(f"Empresa: {empresa}.")
-        resumen = filtered_client_info.get("resumen_anterior")
-        if resumen:
-            context_parts.append(f"Resumen de conversación previa: {resumen}.")
-        if context_parts:
-            system_context = (
-                "Eres AIFy, asistente de IA Factory Cancún. Usa este contexto inicial para personalizar la interacción.\n"
-                + "\n".join(context_parts)
-            )
-            initial_history.append({"role": "system", "content": system_context})
-
-    # 3) Construimos el prompt CON CONTEXTO (si no hay info, no inventamos nada)
+    # 1) Construimos el prompt CON CONTEXTO
     messages_for_api = generate_openai_prompt(
-        initial_history,
-        client_info=filtered_client_info
+        history, 
+        client_info=client_info
     ) + [
         {"role": "user", "content": current_user_message}
     ]
