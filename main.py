@@ -691,9 +691,8 @@ async def _send_text_pulse(conversation_id: str, state: Dict[str, Any]) -> None:
 async def _end_text_conversation(conversation_id: str, state: Dict[str, Any], reason: str) -> None:
     """
     Envía a n8n el historial y datos de la conversación y limpia el estado local.
-    Requiere variable de entorno N8N_CHAT_END_WEBHOOK_URL.
     """
-    url = os.getenv("N8N_CHAT_END_WEBHOOK_URL")
+    url = "https://n8n.aissistantpros.tech/webhook-test/conversation/end"
     history = conversation_histories.get(conversation_id, [])
     payload = {
         "type": "end_conversation",
@@ -702,15 +701,18 @@ async def _end_text_conversation(conversation_id: str, state: Dict[str, Any], re
         "client_info": state.get("client_info", {}),
         "history": history,
     }
-    if url:
+    
+    try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(url, json=payload)
             if resp.status_code >= 300:
                 logger.error(f"End webhook status {resp.status_code}: {resp.text}")
             else:
                 logger.info(f"Resumen de conversación enviado a n8n para {conversation_id}")
-    else:
-        logger.info("N8N_CHAT_END_WEBHOOK_URL no configurada; se omite envío a n8n")
+    except Exception as e:
+        logger.error(f"Error enviando resumen a n8n: {e}")
+    
+    # Limpiar estado local
     TEXT_CHAT_STATE.pop(conversation_id, None)
 
 
