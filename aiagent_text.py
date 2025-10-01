@@ -42,13 +42,84 @@ def handle_detect_intent(**kwargs) -> Dict:
     return {"intent_detected": kwargs.get("intention")}
 
 # ====== Mapeo de funciones reales (tool name → función Python) ======
+def tool_process_appointment_request(
+    user_query_for_date_time: str,
+    day_param: Optional[int] = None,
+    month_param: Optional[Any] = None,
+    year_param: Optional[int] = None,
+    fixed_weekday_param: Optional[str] = None,
+    explicit_time_preference_param: Optional[str] = None,
+    is_urgent_param: Optional[bool] = False,
+    more_late_param: Optional[bool] = False,
+    more_early_param: Optional[bool] = False,
+):
+    return process_appointment_request(
+        user_query_for_date_time=user_query_for_date_time,
+        day_param=day_param,
+        month_param=month_param,
+        year_param=year_param,
+        fixed_weekday_param=fixed_weekday_param,
+        explicit_time_preference_param=explicit_time_preference_param,
+        is_urgent_param=is_urgent_param or False,
+        more_late_param=more_late_param or False,
+        more_early_param=more_early_param or False,
+    )
+
+
+def tool_create_calendar_event(
+    name: str,
+    phone: str,
+    reason: str,
+    start_time: str,
+    end_time: str,
+):
+    return create_calendar_event(
+        name=name,
+        phone=phone,
+        reason=reason,
+        start_time=start_time,
+        end_time=end_time,
+    )
+
+
+def tool_search_calendar_event_by_phone(phone: str):
+    return search_calendar_event_by_phone(phone=phone)
+
+
+def tool_select_calendar_event_by_index(index: int):
+    # Adaptar nombre esperado por la función real
+    return select_calendar_event_by_index(selected_index=index)
+
+
+def tool_edit_calendar_event(
+    event_id: str,
+    new_start_time_iso: str,
+    new_end_time_iso: str,
+    new_name: Optional[str] = None,
+    new_reason: Optional[str] = None,
+    new_phone_for_description: Optional[str] = None,
+):
+    return edit_calendar_event(
+        event_id=event_id,
+        new_start_time_iso=new_start_time_iso,
+        new_end_time_iso=new_end_time_iso,
+        new_name=new_name,
+        new_reason=new_reason,
+        new_phone_for_description=new_phone_for_description,
+    )
+
+
+def tool_delete_calendar_event(event_id: str, original_start_time_iso: str):
+    return delete_calendar_event(event_id=event_id, original_start_time_iso=original_start_time_iso)
+
+
 tool_functions_map = {
-    "process_appointment_request": process_appointment_request,
-    "create_calendar_event": create_calendar_event,
-    "search_calendar_event_by_phone": search_calendar_event_by_phone,
-    "select_calendar_event_by_index": select_calendar_event_by_index,
-    "edit_calendar_event": edit_calendar_event,
-    "delete_calendar_event": delete_calendar_event,
+    "process_appointment_request": tool_process_appointment_request,
+    "create_calendar_event": tool_create_calendar_event,
+    "search_calendar_event_by_phone": tool_search_calendar_event_by_phone,
+    "select_calendar_event_by_index": tool_select_calendar_event_by_index,
+    "edit_calendar_event": tool_edit_calendar_event,
+    "delete_calendar_event": tool_delete_calendar_event,
     "detect_intent": handle_detect_intent,
     "get_cancun_weather": get_cancun_weather,
 }
@@ -59,24 +130,39 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "process_appointment_request",
-            "description": "Analizar la intención del usuario y extraer fecha, hora y motivo de la cita. Devuelve JSON con fields: {date, time, motive}."
+            "description": "Analiza la preferencia de fecha/hora del usuario y devuelve slots disponibles.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_query_for_date_time": {"type": "string", "description": "Texto exacto del usuario en español"},
+                    "day_param": {"type": "integer"},
+                    "month_param": {"description": "Mes (string en español o número)"},
+                    "year_param": {"type": "integer"},
+                    "fixed_weekday_param": {"type": "string"},
+                    "explicit_time_preference_param": {"type": "string"},
+                    "is_urgent_param": {"type": "boolean"},
+                    "more_late_param": {"type": "boolean"},
+                    "more_early_param": {"type": "boolean"}
+                },
+                "required": ["user_query_for_date_time"]
+            }
         }
     },
     {
         "type": "function",
         "function": {
             "name": "create_calendar_event",
-            "description": "Crear una cita nueva en Google Calendar con la información proporcionada.",
+            "description": "Crea una cita en Google Calendar con los datos proporcionados.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "date": {"type": "string", "description": "Fecha YYYY-MM-DD"},
-                    "time": {"type": "string", "description": "Hora HH:MM"},
-                    "motive": {"type": "string", "description": "Motivo de la consulta"},
-                    "name": {"type": "string", "description": "Nombre del paciente"},
-                    "phone": {"type": "string", "description": "Teléfono del paciente"}
+                    "name": {"type": "string"},
+                    "phone": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "start_time": {"type": "string", "description": "ISO datetime"},
+                    "end_time": {"type": "string", "description": "ISO datetime"}
                 },
-                "required": ["date", "time", "name", "phone"]
+                "required": ["name", "phone", "reason", "start_time", "end_time"]
             }
         }
     },
@@ -84,18 +170,25 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_calendar_event_by_phone",
-            "description": "Buscar próximas citas por número telefónico del paciente."
+            "description": "Busca próximas citas por número telefónico.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phone": {"type": "string"}
+                },
+                "required": ["phone"]
+            }
         }
     },
     {
         "type": "function",
         "function": {
             "name": "select_calendar_event_by_index",
-            "description": "Seleccionar una cita específica por su índice en una lista.",
+            "description": "Selecciona una cita por su índice en la lista mostrada.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "index": {"type": "integer", "description": "Índice (0-based) de la cita"}
+                    "index": {"type": "integer"}
                 },
                 "required": ["index"]
             }
@@ -105,15 +198,18 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "edit_calendar_event",
-            "description": "Editar la fecha u hora de una cita existente.",
+            "description": "Edita una cita existente con nuevos horarios y datos opcionales.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "event_id": {"type": "string"},
-                    "new_date": {"type": "string"},
-                    "new_time": {"type": "string"}
+                    "new_start_time_iso": {"type": "string"},
+                    "new_end_time_iso": {"type": "string"},
+                    "new_name": {"type": "string"},
+                    "new_reason": {"type": "string"},
+                    "new_phone_for_description": {"type": "string"}
                 },
-                "required": ["event_id"]
+                "required": ["event_id", "new_start_time_iso", "new_end_time_iso"]
             }
         }
     },
@@ -121,11 +217,14 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "delete_calendar_event",
-            "description": "Eliminar una cita existente.",
+            "description": "Elimina una cita existente.",
             "parameters": {
                 "type": "object",
-                "properties": {"event_id": {"type": "string"}},
-                "required": ["event_id"]
+                "properties": {
+                    "event_id": {"type": "string"},
+                    "original_start_time_iso": {"type": "string"}
+                },
+                "required": ["event_id", "original_start_time_iso"]
             }
         }
     },

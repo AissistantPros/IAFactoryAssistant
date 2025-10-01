@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import time
 import httpx
+from datetime import datetime
 
 # === TWILIO IMPORTS ===
 from twilio.jwt.client import ClientCapabilityToken
@@ -251,18 +252,32 @@ async def get_twilio_token(request: Request):
 
 class N8NMessage(BaseModel):
     """Modelo para mensajes entrantes de n8n"""
-    platform: Optional[str] = None
-    user_id: Optional[str] = None
+    # Mensaje y identificación
+    message_text: Optional[str] = None
     conversation_id: Optional[str] = None
+    
+    # Canal y plataforma
+    platform: Optional[str] = None
+    canal: Optional[str] = None
+    
+    # Identificadores básicos
+    user_id: Optional[str] = None
     user_name: Optional[str] = None
     phone: Optional[str] = None
-    message_text: Optional[str] = None
-    
-    # NUEVOS CAMPOS para contexto
     email: Optional[str] = None
+    
+    # NUEVO: Metadata técnica
+    os: Optional[str] = None
+    browser: Optional[str] = None
+    source_url: Optional[str] = None
+    campaign: Optional[str] = None
+    
+    # NUEVO: Contexto completo desde Airtable (solo si existe el usuario)
+    airtable_context: Optional[Dict] = None
+    
+    # Backwards compatibility (mantener campos antiguos)
     empresa: Optional[str] = None
-    canal: Optional[str] = None  # "whatsapp", "instagram", "facebook", etc.
-    resumen_anterior: Optional[str] = None  # Resumen de última interacción
+    resumen_anterior: Optional[str] = None
 
 
 @app.post("/webhook/n8n_message")
@@ -282,6 +297,29 @@ async def receive_n8n_message(message_data: N8NMessage):
     # Gestionar historial
     if conversation_id not in conversation_histories:
         conversation_histories[conversation_id] = []
+        
+        # ===== AGREGAR ESTE BLOQUE NUEVO =====
+        TEXT_CHAT_STATE[conversation_id] = {
+            "first_message_ts": time.time(),
+            "last_activity_ts": time.time(),
+            "pulse_sent": False,
+            "ended": False,
+            "platform": message_data.canal or message_data.platform,
+            "metadata": {
+                "phone": message_data.phone,
+                "user_id": message_data.user_id,
+                "user_name": message_data.user_name,
+                "email": message_data.email,
+                "os": message_data.os,
+                "browser": message_data.browser,
+                "source_url": message_data.source_url,
+                "campaign": message_data.campaign,
+            },
+            "client_info": {},  # Se llenará abajo
+            "message_count": {"user": 0, "assistant": 0},
+            "word_count": {"user": 0, "assistant": 0}
+        }
+        # ===== FIN DEL BLOQUE NUEVO =====
     
     # Limitar historial a 20 mensajes
     if len(conversation_histories[conversation_id]) > 20:
@@ -297,23 +335,42 @@ async def receive_n8n_message(message_data: N8NMessage):
         "client_info": {},
     }
     state["last_activity_ts"] = time.time()
+    
+    # ===== AGREGAR ESTE BLOQUE NUEVO =====
+    # Actualizar contadores
+    if "message_count" not in state:
+        state["message_count"] = {"user": 0, "assistant": 0}
+        state["word_count"] = {"user": 0, "assistant": 0}
+    
+    state["message_count"]["user"] += 1
+    state["word_count"]["user"] += len(current_message.split())
+    # ===== FIN DEL BLOQUE NUEVO =====
+    
     TEXT_CHAT_STATE[conversation_id] = state
 
-    # ========== NUEVO: PREPARAR CONTEXTO DEL CLIENTE ==========
-    client_info = {
-        "nombre": message_data.user_name,
-        "telefono": message_data.phone,
-        "email": getattr(message_data, "email", None),
-        "empresa": getattr(message_data, "empresa", None),
-        "canal": (getattr(message_data, "canal", None) or message_data.platform),
-        "resumen_anterior": getattr(message_data, "resumen_anterior", None)
-    }
-    client_info = {k: v for k, v in client_info.items() if v is not None}
-    # Guardar/actualizar client_info en estado
+    # ===== PREPARAR client_info (MODIFICAR ESTE BLOQUE) =====
+    # REEMPLAZAR el bloque existente de client_info por este:
+    
+    # Priorizar airtable_context si existe
+    if message_data.airtable_context:
+        client_info = message_data.airtable_context
+    else:
+        # Backwards compatibility: construir de campos sueltos
+        client_info = {
+            "nombre": message_data.user_name,
+            "telefono": message_data.phone,
+            "email": message_data.email,
+            "empresa": message_data.empresa,
+            "canal": message_data.canal or message_data.platform,
+            "resumen_anterior": message_data.resumen_anterior
+        }
+        client_info = {k: v for k, v in client_info.items() if v is not None}
+    
+    # Guardar en estado
     state_client = state.get("client_info", {})
     state_client.update(client_info)
     state["client_info"] = state_client
-    # ========== FIN DEL NUEVO CÓDIGO ==========
+    # ===== FIN DE PREPARAR client_info =====
 
     # Procesar con IA de texto
     try:
@@ -336,6 +393,12 @@ async def receive_n8n_message(message_data: N8NMessage):
     # Agregar respuesta al historial
     if ai_reply:
         history.append({"role": "assistant", "content": ai_reply})
+        
+        # ===== AGREGAR ESTE BLOQUE NUEVO =====
+        # Actualizar contadores de respuesta
+        state["message_count"]["assistant"] += 1
+        state["word_count"]["assistant"] += len(ai_reply.split())
+        # ===== FIN DEL BLOQUE NUEVO =====
     
     # Si la IA solicitó terminar la conversación, disparar cierre
     end_chat = bool(response_data.get("end_chat"))
@@ -690,30 +753,83 @@ async def _send_text_pulse(conversation_id: str, state: Dict[str, Any]) -> None:
 
 async def _end_text_conversation(conversation_id: str, state: Dict[str, Any], reason: str) -> None:
     """
-    Envía a n8n el historial y datos de la conversación y limpia el estado local.
+    Envía a n8n el historial completo, métricas y metadata de la conversación.
     """
     url = "https://n8n.aissistantpros.tech/webhook-test/conversation/end"
     history = conversation_histories.get(conversation_id, [])
+    
+    # Calcular duración
+    first_ts = state.get("first_message_ts", time.time())
+    last_ts = state.get("last_activity_ts", time.time())
+    duration_seconds = int(last_ts - first_ts)
+    
+    # Preparar payload expandido
     payload = {
         "type": "end_conversation",
         "conversation_id": conversation_id,
         "reason": reason,
+        
+        # ===== IDENTIFICACIÓN (para matching en Airtable) =====
+        "client_identification": {
+            "phone": state.get("metadata", {}).get("phone"),
+            "email": state.get("metadata", {}).get("email"),
+            "user_id": state.get("metadata", {}).get("user_id"),
+            "user_name": state.get("metadata", {}).get("user_name"),
+        },
+        
+        # ===== CONTEXTO (si era cliente conocido) =====
         "client_info": state.get("client_info", {}),
+        
+        # ===== TRANSCRIPCIÓN COMPLETA =====
         "history": history,
+        
+        # ===== MÉTRICAS =====
+        "metrics": {
+            "total_messages": len(history),
+            "user_messages": state.get("message_count", {}).get("user", 0),
+            "assistant_messages": state.get("message_count", {}).get("assistant", 0),
+            "user_words": state.get("word_count", {}).get("user", 0),
+            "assistant_words": state.get("word_count", {}).get("assistant", 0),
+            "duration_seconds": duration_seconds,
+            "duration_minutes": round(duration_seconds / 60, 1),
+        },
+        
+        # ===== METADATA TÉCNICA =====
+        "metadata": {
+            "platform": state.get("platform"),
+            "os": state.get("metadata", {}).get("os"),
+            "browser": state.get("metadata", {}).get("browser"),
+            "source_url": state.get("metadata", {}).get("source_url"),
+            "campaign": state.get("metadata", {}).get("campaign"),
+        },
+        
+        # ===== TIMESTAMPS =====
+        "timestamps": {
+            "started_at": first_ts,
+            "ended_at": last_ts,
+            "started_at_iso": datetime.fromtimestamp(first_ts).isoformat(),
+            "ended_at_iso": datetime.fromtimestamp(last_ts).isoformat(),
+        }
     }
+    
+    logger.info(f"📤 Enviando resumen de conversación {conversation_id} a n8n")
+    logger.info(f"   └─ Duración: {duration_seconds}s | Mensajes: {len(history)}")
     
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(url, json=payload)
             if resp.status_code >= 300:
-                logger.error(f"End webhook status {resp.status_code}: {resp.text}")
+                logger.error(f"End webhook status {resp.status_code}: {resp.text[:200]}")
             else:
-                logger.info(f"Resumen de conversación enviado a n8n para {conversation_id}")
+                logger.info(f"✅ Resumen enviado a n8n para {conversation_id}")
     except Exception as e:
         logger.error(f"Error enviando resumen a n8n: {e}")
     
     # Limpiar estado local
     TEXT_CHAT_STATE.pop(conversation_id, None)
+    conversation_histories.pop(conversation_id, None)
+    
+    logger.info(f"🧹 Estado local limpiado para {conversation_id}")
 
 
 # ========== MANEJO DE ERRORES GLOBAL ==========
