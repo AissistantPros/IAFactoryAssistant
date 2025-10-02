@@ -252,30 +252,50 @@ async def get_twilio_token(request: Request):
 
 class N8NMessage(BaseModel):
     """Modelo para mensajes entrantes de n8n"""
-    # Mensaje y identificación
+    # Campos principales
+    session_ID: Optional[str] = None
+    user_message: Optional[str] = None  
+    canal: Optional[str] = None
+    url_origen: Optional[str] = None
+    sistema_operativo: Optional[str] = None
+    plataforma: Optional[str] = None
+    navegador: Optional[str] = None
+    wa_phone: Optional[str] = None
+    wa_username: Optional[str] = None
+    
+    # Campos de contexto DB (todos con prefijo contexto_db_)
+    contexto_db_ultimo_canal_usado: Optional[str] = None
+    contexto_db_whatsapp: Optional[str] = None
+    contexto_db_email: Optional[str] = None
+    contexto_db_empresa: Optional[str] = None
+    contexto_db_categoria_empresa: Optional[str] = None
+    contexto_db_nombre_de_usuario: Optional[str] = None
+    contexto_db_InstagramUsername: Optional[str] = None
+    contexto_db_FacebookUserID: Optional[str] = None
+    contexto_db_Resumen_de_ultima_Conversacion: Optional[str] = None
+    contexto_db_InstagramUserID: Optional[str] = None
+    contexto_db_telefonoMencionado: Optional[str] = None
+    contexto_db_AccionesTomadas_en_ultima_conversacion: Optional[str] = None
+    contexto_db_AccionesPorTomar_al_terminar_la_ultima_conversacion: Optional[str] = None
+    contexto_db_InteresDetectado: Optional[str] = None
+    contexto_db_PresupuestoMencionado: Optional[float] = None
+    contexto_db_UltimaActualizacion_de_DB: Optional[str] = None
+    contexto_db_EsClienteRecurrente: Optional[str] = None
+    contexto_db_numero_de_interacciones: Optional[int] = None
+    
+    # Backwards compatibility (mantener campos antiguos)
     message_text: Optional[str] = None
     conversation_id: Optional[str] = None
-    
-    # Canal y plataforma
     platform: Optional[str] = None
-    canal: Optional[str] = None
-    
-    # Identificadores básicos
     user_id: Optional[str] = None
     user_name: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
-    
-    # NUEVO: Metadata técnica
     os: Optional[str] = None
     browser: Optional[str] = None
     source_url: Optional[str] = None
     campaign: Optional[str] = None
-    
-    # NUEVO: Contexto completo desde Airtable (solo si existe el usuario)
     airtable_context: Optional[Dict] = None
-    
-    # Backwards compatibility (mantener campos antiguos)
     empresa: Optional[str] = None
     resumen_anterior: Optional[str] = None
 
@@ -287,39 +307,79 @@ async def receive_n8n_message(message_data: N8NMessage):
     
     Procesa mensajes de WhatsApp, Instagram, etc.
     """
-    logger.info(f"[FUNCIONALIDAD] Mensaje de {message_data.user_id}: '{message_data.message_text}' (POST /webhook/n8n_message)")
+    # Determinar IDs y mensaje usando campos nuevos con fallback a antiguos
+    conversation_id = message_data.session_ID or message_data.conversation_id or "unknown_session"
+    user_id = message_data.wa_username or message_data.user_id or "unknown_user"
+    current_message = message_data.user_message or message_data.message_text or ""
+    
+    logger.info(f"[FUNCIONALIDAD] Mensaje de {user_id}: '{current_message}' (POST /webhook/n8n_message)")
     t0 = time.perf_counter()
     
-    user_id = message_data.user_id or "unknown_user"
-    conversation_id = message_data.conversation_id or user_id
-    current_message = message_data.message_text or ""
+    # Determinar si es primera interacción
+    is_first_interaction = conversation_id not in conversation_histories
     
     # Gestionar historial
-    if conversation_id not in conversation_histories:
+    if is_first_interaction:
+        logger.info(f"Primera interacción - usando contexto para {conversation_id}")
         conversation_histories[conversation_id] = []
         
-        # ===== AGREGAR ESTE BLOQUE NUEVO =====
+        # Inicializar estado con métricas
         TEXT_CHAT_STATE[conversation_id] = {
             "first_message_ts": time.time(),
             "last_activity_ts": time.time(),
             "pulse_sent": False,
             "ended": False,
-            "platform": message_data.canal or message_data.platform,
+            "platform": message_data.canal or message_data.plataforma or message_data.platform,
             "metadata": {
-                "phone": message_data.phone,
-                "user_id": message_data.user_id,
-                "user_name": message_data.user_name,
-                "email": message_data.email,
-                "os": message_data.os,
-                "browser": message_data.browser,
-                "source_url": message_data.source_url,
+                "phone": message_data.wa_phone or message_data.phone,
+                "user_id": user_id,
+                "user_name": message_data.wa_username or message_data.user_name,
+                "email": message_data.contexto_db_email or message_data.email,
+                "os": message_data.sistema_operativo or message_data.os,
+                "browser": message_data.navegador or message_data.browser,
+                "source_url": message_data.url_origen or message_data.source_url,
                 "campaign": message_data.campaign,
             },
             "client_info": {},  # Se llenará abajo
             "message_count": {"user": 0, "assistant": 0},
             "word_count": {"user": 0, "assistant": 0}
         }
-        # ===== FIN DEL BLOQUE NUEVO =====
+        
+        # Construir client_info desde campos contexto_db_* SOLO en primera interacción
+        client_info = {}
+        if message_data.contexto_db_nombre_de_usuario:
+            client_info["nombre"] = message_data.contexto_db_nombre_de_usuario
+        if message_data.contexto_db_whatsapp or message_data.wa_phone:
+            client_info["telefono"] = message_data.contexto_db_whatsapp or message_data.wa_phone
+        if message_data.contexto_db_email:
+            client_info["email"] = message_data.contexto_db_email
+        if message_data.contexto_db_empresa:
+            client_info["empresa"] = message_data.contexto_db_empresa
+        if message_data.contexto_db_categoria_empresa:
+            client_info["categoria_empresa"] = message_data.contexto_db_categoria_empresa
+        if message_data.contexto_db_ultimo_canal_usado:
+            client_info["canal"] = message_data.contexto_db_ultimo_canal_usado
+        if message_data.contexto_db_Resumen_de_ultima_Conversacion:
+            client_info["resumen_anterior"] = message_data.contexto_db_Resumen_de_ultima_Conversacion
+        if message_data.contexto_db_AccionesTomadas_en_ultima_conversacion:
+            client_info["acciones_tomadas"] = message_data.contexto_db_AccionesTomadas_en_ultima_conversacion
+        if message_data.contexto_db_AccionesPorTomar_al_terminar_la_ultima_conversacion:
+            client_info["acciones_por_tomar"] = message_data.contexto_db_AccionesPorTomar_al_terminar_la_ultima_conversacion
+        if message_data.contexto_db_InteresDetectado:
+            client_info["interes_detectado"] = message_data.contexto_db_InteresDetectado
+        if message_data.contexto_db_PresupuestoMencionado:
+            client_info["presupuesto_mencionado"] = message_data.contexto_db_PresupuestoMencionado
+        if message_data.contexto_db_EsClienteRecurrente:
+            client_info["es_cliente_recurrente"] = message_data.contexto_db_EsClienteRecurrente
+        if message_data.contexto_db_numero_de_interacciones:
+            client_info["numero_interacciones"] = message_data.contexto_db_numero_de_interacciones
+        
+        # Guardar en estado
+        TEXT_CHAT_STATE[conversation_id]["client_info"] = client_info
+        
+    else:
+        logger.info(f"Interacción posterior - sin contexto para {conversation_id}")
+        client_info = None  # NO usar contexto en mensajes posteriores
     
     # Limitar historial a 20 mensajes
     if len(conversation_histories[conversation_id]) > 20:
@@ -348,29 +408,7 @@ async def receive_n8n_message(message_data: N8NMessage):
     
     TEXT_CHAT_STATE[conversation_id] = state
 
-    # ===== PREPARAR client_info (MODIFICAR ESTE BLOQUE) =====
-    # REEMPLAZAR el bloque existente de client_info por este:
-    
-    # Priorizar airtable_context si existe
-    if message_data.airtable_context:
-        client_info = message_data.airtable_context
-    else:
-        # Backwards compatibility: construir de campos sueltos
-        client_info = {
-            "nombre": message_data.user_name,
-            "telefono": message_data.phone,
-            "email": message_data.email,
-            "empresa": message_data.empresa,
-            "canal": message_data.canal or message_data.platform,
-            "resumen_anterior": message_data.resumen_anterior
-        }
-        client_info = {k: v for k, v in client_info.items() if v is not None}
-    
-    # Guardar en estado
-    state_client = state.get("client_info", {})
-    state_client.update(client_info)
-    state["client_info"] = state_client
-    # ===== FIN DE PREPARAR client_info =====
+    # client_info ya se configuró arriba según si es primera interacción o no
 
     # Procesar con IA de texto
     try:
@@ -378,7 +416,7 @@ async def receive_n8n_message(message_data: N8NMessage):
             user_id=user_id,
             current_user_message=current_message,
             history=history,
-            client_info=client_info
+            client_info=client_info  # Solo se pasa en primera interacción
         )
         
         ai_reply = response_data.get("reply_text", "No pude obtener una respuesta.")
