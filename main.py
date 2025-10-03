@@ -100,6 +100,7 @@ global_call_limiter = {
 
 # ===== ESTADO GLOBAL =====
 conversation_histories: Dict[str, List[Dict]] = {}
+full_conversation_histories: Dict[str, List[Dict]] = {}
 
 # ===== ESTADO DE CHATS DE TEXTO (TIMEOUTS/PULSOS) =====
 TEXT_CHAT_STATE: Dict[str, Dict[str, Any]] = {}
@@ -322,6 +323,7 @@ async def receive_n8n_message(message_data: N8NMessage):
     if is_first_interaction:
         logger.info(f"Primera interacción - usando contexto para {conversation_id}")
         conversation_histories[conversation_id] = []
+        full_conversation_histories[conversation_id] = []
         
         # Inicializar estado con métricas
         TEXT_CHAT_STATE[conversation_id] = {
@@ -386,6 +388,9 @@ async def receive_n8n_message(message_data: N8NMessage):
         conversation_histories[conversation_id] = conversation_histories[conversation_id][-20:]
     
     history = conversation_histories[conversation_id]
+    # Agregar a historial completo
+    full_conversation_histories[conversation_id].append({"role": "user", "content": current_message})
+    # Agregar a historial recortado
     history.append({"role": "user", "content": current_message})
     
     # Actualizar estado de conversación para timeouts/pulsos
@@ -430,6 +435,9 @@ async def receive_n8n_message(message_data: N8NMessage):
     
     # Agregar respuesta al historial
     if ai_reply:
+        # Agregar a historial completo
+        full_conversation_histories[conversation_id].append({"role": "assistant", "content": ai_reply})
+        # Agregar a historial recortado
         history.append({"role": "assistant", "content": ai_reply})
         
         # ===== AGREGAR ESTE BLOQUE NUEVO =====
@@ -780,10 +788,11 @@ async def _send_text_pulse(conversation_id: str, state: Dict[str, Any]) -> None:
     
     # Añadir el pulse al historial de la conversación
     if conversation_id in conversation_histories:
-        conversation_histories[conversation_id].append({
-            "role": "assistant", 
-            "content": message
-        })
+        pulse_message = {"role": "assistant", "content": message}
+        # Agregar a historial completo
+        full_conversation_histories[conversation_id].append(pulse_message)
+        # Agregar a historial recortado
+        conversation_histories[conversation_id].append(pulse_message)
         logger.info(f"Pulse añadido al historial de {conversation_id}: '{message}'")
     else:
         logger.warning(f"No se encontró historial para {conversation_id}")
@@ -794,7 +803,7 @@ async def _end_text_conversation(conversation_id: str, state: Dict[str, Any], re
     Envía a n8n el resumen simplificado de la conversación.
     """
     url = "https://n8n.aissistantpros.tech/webhook/conversation/end"
-    history = conversation_histories.get(conversation_id, [])
+    history = full_conversation_histories.get(conversation_id, [])
     
     # Calcular timestamps
     first_ts = state.get("first_message_ts", time.time())
@@ -831,6 +840,7 @@ async def _end_text_conversation(conversation_id: str, state: Dict[str, Any], re
     # Limpiar estado local
     TEXT_CHAT_STATE.pop(conversation_id, None)
     conversation_histories.pop(conversation_id, None)
+    full_conversation_histories.pop(conversation_id, None)
     
     logger.info(f"🧹 Estado local limpiado para {conversation_id}")
 
