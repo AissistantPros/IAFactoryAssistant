@@ -410,9 +410,17 @@ async def process_text_message(
             f"[{conv_id_for_logs}] Respuesta final: '{ai_final_response_content}'"
         )
 
+        # Recopilar herramientas usadas
+        tools_used = []
+        if tool_calls:
+            for tool_call in tool_calls:
+                if hasattr(tool_call, 'function') and tool_call.function:
+                    tools_used.append(tool_call.function.name)
+        
         result: Dict[str, Any] = {
             "reply_text": ai_final_response_content,
             "status": status_message,
+            "tools_used": tools_used,
         }
         if end_chat:
             result["end_chat"] = True

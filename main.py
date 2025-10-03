@@ -313,7 +313,7 @@ async def receive_n8n_message(message_data: N8NMessage):
     user_id = message_data.wa_username or message_data.user_id or "unknown_user"
     current_message = message_data.user_message or message_data.message_text or ""
     
-    logger.info(f"[FUNCIONALIDAD] Mensaje de {user_id}: '{current_message}' (POST /webhook/n8n_message)")
+    logger.info(f"📱 [USUARIO] {user_id}: '{current_message}'")
     t0 = time.perf_counter()
     
     # Determinar si es primera interacción
@@ -426,6 +426,14 @@ async def receive_n8n_message(message_data: N8NMessage):
         
         ai_reply = response_data.get("reply_text", "No pude obtener una respuesta.")
         status = response_data.get("status", "success")
+        
+        # Log de respuesta del agente
+        logger.info(f"🤖 [AGENTE] {user_id}: '{ai_reply}'")
+        
+        # Log de herramientas usadas
+        tools_used = response_data.get("tools_used", [])
+        if tools_used:
+            logger.info(f"🔧 [HERRAMIENTAS] {user_id} usó: {', '.join(tools_used)}")
         
     except Exception as e:
         logger.error(f"Error procesando mensaje: {e}")
@@ -762,6 +770,7 @@ async def _background_text_chat_monitor() -> None:
                 idle = now - last_ts
                 if idle >= PULSE_AFTER_SECONDS and not state.get("pulse_sent"):
                     try:
+                        logger.info(f"⏰ [PULSE] Mensaje de pulse enviado a {conversation_id} después de 20min de inactividad")
                         await _send_text_pulse(conversation_id, state)
                         state["pulse_sent"] = True
                     except Exception as e:
@@ -769,6 +778,7 @@ async def _background_text_chat_monitor() -> None:
                 if idle >= CLOSE_AFTER_SECONDS:
                     state["ended"] = True
                     try:
+                        logger.info(f"🔚 [SESIÓN] Sesión terminada tras 60 min de inactividad de {conversation_id}")
                         await _end_text_conversation(conversation_id, state, reason="timeout_inactivity")
                     except Exception as e:
                         logger.error(f"Error cerrando conversación por timeout: {e}")
@@ -784,7 +794,7 @@ async def _send_text_pulse(conversation_id: str, state: Dict[str, Any]) -> None:
     Envía un 'pulse' como mensaje adicional en la conversación existente.
     Simplemente añade el mensaje al historial como si fuera una respuesta automática del asistente.
     """
-    message = "Sigo en línea si quieres continuar la conversación."
+    message = "Por aquí sigo si necesitas algo 😊"
     
     # Añadir el pulse al historial de la conversación
     if conversation_id in conversation_histories:
@@ -802,6 +812,17 @@ async def _end_text_conversation(conversation_id: str, state: Dict[str, Any], re
     """
     Envía a n8n el resumen simplificado de la conversación.
     """
+    # Agregar mensaje final de cierre al historial
+    if conversation_id in conversation_histories:
+        final_message = "Ahora cerraré nuestra sesión. ¡Gracias! 😊"
+        final_message_obj = {"role": "assistant", "content": final_message}
+        
+        # Agregar a ambos historiales
+        full_conversation_histories[conversation_id].append(final_message_obj)
+        conversation_histories[conversation_id].append(final_message_obj)
+        
+        logger.info(f"💬 [MENSAJE FINAL] {conversation_id}: '{final_message}'")
+    
     url = "https://n8n.aissistantpros.tech/webhook/conversation/end"
     history = full_conversation_histories.get(conversation_id, [])
     
