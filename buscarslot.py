@@ -59,16 +59,14 @@ for i, w in enumerate([
 
 # ──────────── CONFIGURACIÓN DE SLOTS ───────────────────────────────────────
 VALID_SLOT_START_TIMES = {
-    "09:30", "10:15", "11:00", "11:45", "12:30", "13:15", "14:00",
+    "10:00", "10:30", "11:00", "16:30", "17:30",
 }
 SLOT_TIMES: List[Dict[str, str]] = [
-    {"start": "09:30", "end": "10:15"},
-    {"start": "10:15", "end": "11:00"},
-    {"start": "11:00", "end": "11:45"},
-    {"start": "11:45", "end": "12:30"},
-    {"start": "12:30", "end": "13:15"},
-    {"start": "13:15", "end": "14:00"},
-    {"start": "14:00", "end": "14:45"},
+    {"start": "10:00", "end": "10:30"},
+    {"start": "10:30", "end": "11:00"},
+    {"start": "11:00", "end": "11:30"},
+    {"start": "16:30", "end": "17:30"},
+    {"start": "17:30", "end": "18:00"},
 ]
 MORNING_CUTOFF_TIME_OBJ = dt_time(12, 0)
 MIN_ADVANCE_BOOKING_HOURS = 6

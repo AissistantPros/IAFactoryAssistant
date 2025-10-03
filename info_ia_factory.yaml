@@ -18,7 +18,7 @@ informacion_empresa:
     ciudad: "Cancún, Quintana Roo"
     detalle: "Operamos de forma remota y ofrecemos servicios a nivel nacional e internacional."
   horarios:
-    disponibilidad: "24/7 gracias a nuestro equipo de agentes de IA."
+    disponibilidad: "10:00am a 11:30am y 4:30pm a 6:00pm, de lunes a viernes. Nuestros agentes de IA están disponibles 24/7 para atender consultas."
   metodos_pago:
     - "Efectivo"
     - "Transferencia bancaria"
@@ -35,15 +35,13 @@ servicios:
     para que puedan llamar por teléfono, contestar WhatsApp, gestionar redes sociales, analizar datos y mucho más.
   plan_base:
     nombre: "Agente Base"
-    precio_mensual: "4,800 pesos"
+    precio_mensual: "2,500 pesos"
     incluye:
-      - "Recepción de llamadas telefónicas."
       - "Gestión de agenda y citas."
       - "2 Skills personalizadas sin costo extra."
       - "500 conversaciones de texto (WhatsApp, etc.)."
-      - "1,000 minutos de llamadas."
       - "Entrenamiento ultra-personalizado sobre tu negocio."
-      - "Reportes de mensajes y llamadas."
+      - "Reportes"
       - "Mantenimiento y actualizaciones constantes."
   skills_adicionales:
     descripcion: >

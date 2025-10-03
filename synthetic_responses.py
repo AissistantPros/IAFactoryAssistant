@@ -56,11 +56,11 @@ TEMPLATES = {
             "¿Qué fecha exacta le gustaría consultar?"
         ],
         "OUT_OF_RANGE": [
-            "Atendemos de nueve treinta a dos de la tarde. ¿Busco dentro de ese rango?",
-            "El horario de consulta es de 9:30 AM a 2:00 PM. ¿Le busco en ese horario?",
-            "Solo agendamos en horario de consulta: 9:30 a 14:00. ¿Está bien?",
-            "Nuestro horario es de nueve y media a dos. ¿Busco ahí?",
-            "Las consultas son de 9:30 de la mañana a 2 de la tarde. ¿Le parece?"
+            "Atendemos de 10:00am a 11:30am y de 4:30pm a 6:00pm, de lunes a viernes. ¿Busco dentro de ese horario?",
+            "El horario de consulta es de 10:00am a 11:30am y de 4:30pm a 6:00pm, de lunes a viernes. ¿Le busco en ese horario?",
+            "Solo agendamos en horario de consulta: 10:00am a 11:30am y 4:30pm a 6:00pm, de lunes a viernes. ¿Está bien?",
+            "Nuestro horario es de 10:00am a 11:30am y de 4:30pm a 6:00pm, de lunes a viernes. ¿Busco ahí?",
+            "Las consultas son de 10:00am a 11:30am y de 4:30pm a 6:00pm, de lunes a viernes. ¿Le parece?"
         ]
     },
     "create_calendar_event": {
