@@ -238,7 +238,7 @@ TOOLS = [
 ]
 
 # ---------------- FUNCIÓN PRINCIPAL ----------------
-def process_text_message(
+async def process_text_message(
     user_id: str,
     current_user_message: str,
     history: List[Dict],
@@ -333,13 +333,9 @@ def process_text_message(
             if func_name in tool_functions_map:
                 try:
                     import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    tool_result = loop.run_until_complete(
-                        asyncio.wait_for(
-                            asyncio.to_thread(tool_functions_map[func_name], **func_args),
-                            timeout=10.0
-                        )
+                    tool_result = await asyncio.wait_for(
+                        asyncio.to_thread(tool_functions_map[func_name], **func_args),
+                        timeout=10.0
                     )
                 except asyncio.TimeoutError:
                     tool_result = {
@@ -353,8 +349,6 @@ def process_text_message(
                         "message": f"Error ejecutando {func_name}: {str(e_tool)}"
                     }
                     print(f"[{conv_id_for_logs}] ❌ ERROR en tool {func_name}: {e_tool}")
-                finally:
-                    loop.close()
             else:
                 tool_result = {"error": f"Función {func_name} no registrada."}
             print(f"[{conv_id_for_logs}] Resultado tool {func_name}: {tool_result}")

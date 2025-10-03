@@ -412,7 +412,7 @@ async def receive_n8n_message(message_data: N8NMessage):
 
     # Procesar con IA de texto
     try:
-        response_data = process_text_message(
+        response_data = await process_text_message(
             user_id=user_id,
             current_user_message=current_message,
             history=history,
@@ -791,67 +791,32 @@ async def _send_text_pulse(conversation_id: str, state: Dict[str, Any]) -> None:
 
 async def _end_text_conversation(conversation_id: str, state: Dict[str, Any], reason: str) -> None:
     """
-    Envía a n8n el historial completo, métricas y metadata de la conversación.
+    Envía a n8n el resumen simplificado de la conversación.
     """
-    url = "https://n8n.aissistantpros.tech/webhook-test/conversation/end"
+    url = "https://n8n.aissistantpros.tech/webhook/conversation/end"
     history = conversation_histories.get(conversation_id, [])
     
-    # Calcular duración
+    # Calcular timestamps
     first_ts = state.get("first_message_ts", time.time())
     last_ts = state.get("last_activity_ts", time.time())
-    duration_seconds = int(last_ts - first_ts)
     
-    # Preparar payload expandido
+    # Preparar payload simplificado
     payload = {
-        "type": "end_conversation",
         "conversation_id": conversation_id,
-        "reason": reason,
-        
-        # ===== IDENTIFICACIÓN (para matching en Airtable) =====
-        "client_identification": {
-            "phone": state.get("metadata", {}).get("phone"),
-            "email": state.get("metadata", {}).get("email"),
-            "user_id": state.get("metadata", {}).get("user_id"),
-            "user_name": state.get("metadata", {}).get("user_name"),
-        },
-        
-        # ===== CONTEXTO (si era cliente conocido) =====
-        "client_info": state.get("client_info", {}),
-        
-        # ===== TRANSCRIPCIÓN COMPLETA =====
+        "canal": state.get("platform"),
+        "telefono": state.get("metadata", {}).get("phone"),
+        "nombre": state.get("metadata", {}).get("user_name"),
+        "email": state.get("metadata", {}).get("email"),
+        "os": state.get("metadata", {}).get("os"),
+        "browser": state.get("metadata", {}).get("browser"),
+        "source_url": state.get("metadata", {}).get("source_url"),
         "history": history,
-        
-        # ===== MÉTRICAS =====
-        "metrics": {
-            "total_messages": len(history),
-            "user_messages": state.get("message_count", {}).get("user", 0),
-            "assistant_messages": state.get("message_count", {}).get("assistant", 0),
-            "user_words": state.get("word_count", {}).get("user", 0),
-            "assistant_words": state.get("word_count", {}).get("assistant", 0),
-            "duration_seconds": duration_seconds,
-            "duration_minutes": round(duration_seconds / 60, 1),
-        },
-        
-        # ===== METADATA TÉCNICA =====
-        "metadata": {
-            "platform": state.get("platform"),
-            "os": state.get("metadata", {}).get("os"),
-            "browser": state.get("metadata", {}).get("browser"),
-            "source_url": state.get("metadata", {}).get("source_url"),
-            "campaign": state.get("metadata", {}).get("campaign"),
-        },
-        
-        # ===== TIMESTAMPS =====
-        "timestamps": {
-            "started_at": first_ts,
-            "ended_at": last_ts,
-            "started_at_iso": datetime.fromtimestamp(first_ts).isoformat(),
-            "ended_at_iso": datetime.fromtimestamp(last_ts).isoformat(),
-        }
+        "fecha_inicio": datetime.fromtimestamp(first_ts).isoformat(),
+        "fecha_fin": datetime.fromtimestamp(last_ts).isoformat()
     }
     
     logger.info(f"📤 Enviando resumen de conversación {conversation_id} a n8n")
-    logger.info(f"   └─ Duración: {duration_seconds}s | Mensajes: {len(history)}")
+    logger.info(f"   └─ Mensajes: {len(history)}")
     
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
