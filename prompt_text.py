@@ -22,15 +22,18 @@ Hablas español, pero también hablas inglés. Si te hablan en inglés, responde
 # IDENTIDAD Y ROL PRINCIPAL
 - **Tu Nombre:** Eres Alex, un consultor experto y asistente de IA de **IA Factory Cancun**.
 - **Tu Lema:** "Escuchar 80%, hablar 20%". Tu misión es ser un detective de procesos de negocio, no un vendedor.
-- **Tono:** Eres amigable, curioso, natural y muy buen oyente. Escribes de forma relajada y conversacional. Usas expresiones como "mmm...", "okey, entiendo...", "a ver, déjame ver..." para sonar más humano.
+- **Tono:** Eres amigable, curioso, natural y muy buen oyente. Escribes de forma relajada y conversacional. 
+Usas expresiones como "mmm...", "okey, entiendo...", "a ver, déjame ver..." para sonar más humano.
 - **IMPORTANTE:** Estás enviando mensajes de texto, así que usa emojis para hacer la conversación más amigable y natural 😊
 
 # REGLAS DE ORO (INQUEBRANTABLES)
 1.  **PREGUNTAR ANTES DE PROPONER:** NO ofrezcas NINGUNA solución, precio o detalle del servicio hasta haber completado la FASE DE DESCUBRIMIENTO.
 2.  **UNA PREGUNTA A LA VEZ:** Para que la conversación sea natural, haz solo UNA pregunta por turno. Espera la respuesta del usuario antes de continuar.
 3.  **SER CONCISO:** Mantén tus respuestas cortas, de 1 a 2 frases. **No uses más de 70 palabras por turno**. Termina siempre con una pregunta para mantener la conversación fluyendo.
-4.  **EXPLICACIONES PRÁCTICAS:** Si te preguntan qué es un agente, explícalo con un ejemplo práctico y sencillo, no con jerga técnica. La regla es: "Para que una respuesta sea efectiva, debe ser aproximadamente 50% más sencilla que la pregunta".
-5.  **NO ALUCINAR:** Si necesitas saber algo (como la disponibilidad en una agenda), **DEBES** usar la herramienta correspondiente. No inventes información. Si no tienes la información, di que necesitas verificarla y usa la herramienta.
+4.  **EXPLICACIONES PRÁCTICAS:** Si te preguntan qué es un agente, explícalo con un ejemplo práctico y sencillo, no con jerga técnica. La regla es: "Para que una respuesta sea efectiva, 
+debe ser aproximadamente 50% más sencilla que la pregunta".
+5.  **NO ALUCINAR:** Si necesitas saber algo (como la disponibilidad en una agenda), **DEBES** usar la herramienta correspondiente. No inventes información. Si no tienes la información, 
+di que necesitas verificarla y usa la herramienta.
 
 # MEMORIA Y USO DE CONTEXTO DEL CLIENTE (CRÍTICO)
 ## Reglas para usar la información del cliente que ya tenemos:
@@ -458,6 +461,54 @@ def generate_openai_prompt(
 
     system_content += PROMPT_UNIFICADO
     
+    # ========== LOGGING PARA DEBUGGING ==========
+    # Log del contexto del cliente si existe
+    if client_info:
+        logger.info("=" * 80)
+        logger.info("🎯 CONTEXTO DEL CLIENTE INYECTADO AL SYSTEM PROMPT")
+        logger.info("=" * 80)
+        
+        # Log de campos básicos
+        if client_info.get('nombre'):
+            logger.info(f"📝 Nombre: {client_info['nombre']}")
+        if client_info.get('telefono'):
+            logger.info(f"📞 Teléfono: {client_info['telefono']}")
+        if client_info.get('email'):
+            logger.info(f"📧 Email: {client_info['email']}")
+        if client_info.get('empresa'):
+            logger.info(f"🏢 Empresa: {client_info['empresa']} ({client_info.get('categoria_empresa', 'N/A')})")
+        
+        # Log del resumen anterior (lo más importante)
+        if client_info.get('resumen_anterior'):
+            logger.info("💬 RESUMEN DE CONVERSACIÓN ANTERIOR:")
+            logger.info(f"   {client_info['resumen_anterior'][:200]}..." if len(client_info['resumen_anterior']) > 200 else f"   {client_info['resumen_anterior']}")
+        
+        # Log de acciones
+        if client_info.get('acciones_tomadas'):
+            logger.info(f"✅ Acciones tomadas: {client_info['acciones_tomadas'][:100]}...")
+        if client_info.get('acciones_por_tomar'):
+            logger.info(f"📋 Acciones pendientes: {client_info['acciones_por_tomar'][:100]}...")
+        
+        # Log de información comercial
+        if client_info.get('interes_detectado'):
+            logger.info(f"🎯 Interés: {client_info['interes_detectado']}")
+        if client_info.get('presupuesto_mencionado'):
+            logger.info(f"💰 Presupuesto: ${client_info['presupuesto_mencionado']}")
+        if client_info.get('es_cliente_recurrente'):
+            logger.info(f"⭐ Cliente recurrente: {client_info['es_cliente_recurrente']}")
+        if client_info.get('numero_interacciones'):
+            logger.info(f"📊 Interacciones previas: {client_info['numero_interacciones']}")
+        
+        logger.info("=" * 80)
+        logger.info("📄 SYSTEM PROMPT COMPLETO (primeros 500 caracteres):")
+        logger.info("=" * 80)
+        # Mostrar los primeros 500 caracteres del system_content para verificar
+        logger.info(system_content[:500] + "..." if len(system_content) > 500 else system_content)
+        logger.info("=" * 80)
+    else:
+        logger.info("ℹ️  Sin contexto de cliente - Primera interacción o usuario nuevo")
+    # ========== FIN DEL LOGGING ==========
+
     # Crear mensaje del sistema
     system_message = {
         "role": "system",
