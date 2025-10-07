@@ -252,170 +252,187 @@ async def get_twilio_token(request: Request):
 # ========== ENDPOINTS DE TEXTO (WEBHOOKS) ==========
 
 class N8NMessage(BaseModel):
-    """Modelo para mensajes entrantes de n8n"""
-    # Campos principales
-    session_ID: Optional[str] = None
-    user_message: Optional[str] = None  
-    canal: Optional[str] = None
-    url_origen: Optional[str] = None
-    sistema_operativo: Optional[str] = None
-    plataforma: Optional[str] = None
-    navegador: Optional[str] = None
-    wa_phone: Optional[str] = None
-    wa_username: Optional[str] = None
+    """Modelo para mensajes entrantes de n8n - ESTRUCTURA ACTUALIZADA"""
+    # Campos de nivel raíz
+    session_id: str
+    user_message: str
+    canal: str
+    timestamp: Optional[str] = None
+    origen_url: Optional[str] = None
     
-    # Campos de contexto DB (todos con prefijo contexto_db_)
-    contexto_db_ultimo_canal_usado: Optional[str] = None
-    contexto_db_whatsapp: Optional[str] = None
-    contexto_db_email: Optional[str] = None
-    contexto_db_empresa: Optional[str] = None
-    contexto_db_categoria_empresa: Optional[str] = None
-    contexto_db_nombre_de_usuario: Optional[str] = None
-    contexto_db_InstagramUsername: Optional[str] = None
-    contexto_db_FacebookUserID: Optional[str] = None
-    contexto_db_Resumen_de_ultima_Conversacion: Optional[str] = None
-    contexto_db_InstagramUserID: Optional[str] = None
-    contexto_db_telefonoMencionado: Optional[str] = None
-    contexto_db_AccionesTomadas_en_ultima_conversacion: Optional[str] = None
-    contexto_db_AccionesPorTomar_al_terminar_la_ultima_conversacion: Optional[str] = None
-    contexto_db_InteresDetectado: Optional[str] = None
-    contexto_db_PresupuestoMencionado: Optional[float] = None
-    contexto_db_UltimaActualizacion_de_DB: Optional[str] = None
-    contexto_db_EsClienteRecurrente: Optional[str] = None
-    contexto_db_numero_de_interacciones: Optional[int] = None
+    # Perfil del usuario (anidado)
+    user_profile: Optional[Dict[str, Any]] = None
     
-    # Backwards compatibility (mantener campos antiguos)
-    message_text: Optional[str] = None
-    conversation_id: Optional[str] = None
-    platform: Optional[str] = None
-    user_id: Optional[str] = None
-    user_name: Optional[str] = None
-    phone: Optional[str] = None
-    email: Optional[str] = None
-    os: Optional[str] = None
-    browser: Optional[str] = None
-    source_url: Optional[str] = None
-    campaign: Optional[str] = None
-    airtable_context: Optional[Dict] = None
-    empresa: Optional[str] = None
-    resumen_anterior: Optional[str] = None
+    # Info de plataforma (anidado)
+    plataforma_info: Optional[Dict[str, Any]] = None
+    
+    # Contexto de DB (anidado)
+    contexto_db: Optional[Dict[str, Any]] = None
+
+
+def clean_null_values(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Elimina recursivamente todos los campos con valor None, null, o strings vacíos
+    de un diccionario, incluyendo diccionarios anidados.
+    
+    Args:
+        data: Diccionario a limpiar
+        
+    Returns:
+        Diccionario sin valores null/None/vacíos
+    """
+    if not isinstance(data, dict):
+        return data
+    
+    cleaned = {}
+    for key, value in data.items():
+        # Saltar valores None o strings vacíos
+        if value is None or value == "":
+            continue
+        
+        # Si es un dict, limpiar recursivamente
+        if isinstance(value, dict):
+            cleaned_nested = clean_null_values(value)
+            # Solo agregar si el dict limpio no está vacío
+            if cleaned_nested:
+                cleaned[key] = cleaned_nested
+        # Si es una lista, limpiar cada elemento
+        elif isinstance(value, list):
+            cleaned_list = [
+                clean_null_values(item) if isinstance(item, dict) else item 
+                for item in value if item is not None and item != ""
+            ]
+            if cleaned_list:
+                cleaned[key] = cleaned_list
+        else:
+            cleaned[key] = value
+    
+    return cleaned
 
 
 @app.post("/webhook/n8n_message")
 async def receive_n8n_message(message_data: N8NMessage):
     """
-    💬 Webhook para mensajes de texto desde n8n
-    
-    Procesa mensajes de WhatsApp, Instagram, etc.
+    💬 Webhook para mensajes de texto desde n8n - VERSIÓN ACTUALIZADA
     """
-    # Determinar IDs y mensaje usando campos nuevos con fallback a antiguos
-    conversation_id = message_data.session_ID or message_data.conversation_id or "unknown_session"
-    user_id = message_data.wa_username or message_data.user_id or "unknown_user"
-    current_message = message_data.user_message or message_data.message_text or ""
+    # ===== PASO 1: EXTRAER DATOS BÁSICOS =====
+    conversation_id = message_data.session_id
+    current_message = message_data.user_message
+    canal = message_data.canal
+    
+    # Extraer user_id del perfil o usar default
+    user_id = "unknown_user"
+    if message_data.user_profile:
+        user_id = message_data.user_profile.get("user_id_canal") or user_id
     
     logger.info(f"📱 [USUARIO] {user_id}: '{current_message}'")
     t0 = time.perf_counter()
     
-    # Determinar si es primera interacción
+    # ===== PASO 2: LIMPIAR NULLS DE TODA LA DATA =====
+    # Convertir el modelo a dict y limpiar nulls
+    raw_data = message_data.dict()
+    cleaned_data = clean_null_values(raw_data)
+    
+    logger.debug(f"🧹 Datos limpiados - Campos antes: {len(raw_data)}, después: {len(cleaned_data)}")
+    
+    # ===== PASO 3: DETERMINAR SI ES PRIMERA INTERACCIÓN =====
     is_first_interaction = conversation_id not in conversation_histories
     
-    # Gestionar historial
+    # ===== PASO 4: INICIALIZAR ESTADO SI ES PRIMERA INTERACCIÓN =====
     if is_first_interaction:
-        logger.info(f"Primera interacción - usando contexto para {conversation_id}")
+        logger.info(f"🆕 Primera interacción para {conversation_id}")
         conversation_histories[conversation_id] = []
         full_conversation_histories[conversation_id] = []
         
-        # Inicializar estado con métricas
+        # Inicializar estado completo
         TEXT_CHAT_STATE[conversation_id] = {
             "first_message_ts": time.time(),
             "last_activity_ts": time.time(),
             "pulse_sent": False,
             "ended": False,
-            "platform": message_data.canal or message_data.plataforma or message_data.platform,
-            "metadata": {
-                "phone": message_data.wa_phone or message_data.phone,
-                "user_id": user_id,
-                "user_name": message_data.wa_username or message_data.user_name,
-                "email": message_data.contexto_db_email or message_data.email,
-                "os": message_data.sistema_operativo or message_data.os,
-                "browser": message_data.navegador or message_data.browser,
-                "source_url": message_data.url_origen or message_data.source_url,
-                "campaign": message_data.campaign,
-            },
+            "canal": canal,
+            "metadata": cleaned_data.get("user_profile", {}),
+            "plataforma_info": cleaned_data.get("plataforma_info", {}),
             "client_info": {},  # Se llenará abajo
             "message_count": {"user": 0, "assistant": 0},
-            "word_count": {"user": 0, "assistant": 0}
+            "word_count": {"user": 0, "assistant": 0},
+            "origen_url": cleaned_data.get("origen_url"),
+            "timestamp_inicio": cleaned_data.get("timestamp")
         }
         
-        # Construir client_info desde campos contexto_db_* SOLO en primera interacción
+        # ===== PASO 5: CONSTRUIR CLIENT_INFO DESDE CONTEXTO_DB =====
+        # SOLO en primera interacción, extraer contexto de la DB
+        contexto_db = cleaned_data.get("contexto_db", {})
         client_info = {}
-        if message_data.contexto_db_nombre_de_usuario:
-            client_info["nombre"] = message_data.contexto_db_nombre_de_usuario
-        if message_data.contexto_db_whatsapp or message_data.wa_phone:
-            client_info["telefono"] = message_data.contexto_db_whatsapp or message_data.wa_phone
-        if message_data.contexto_db_email:
-            client_info["email"] = message_data.contexto_db_email
-        if message_data.contexto_db_empresa:
-            client_info["empresa"] = message_data.contexto_db_empresa
-        if message_data.contexto_db_categoria_empresa:
-            client_info["categoria_empresa"] = message_data.contexto_db_categoria_empresa
-        if message_data.contexto_db_ultimo_canal_usado:
-            client_info["canal"] = message_data.contexto_db_ultimo_canal_usado
-        if message_data.contexto_db_Resumen_de_ultima_Conversacion:
-            client_info["resumen_anterior"] = message_data.contexto_db_Resumen_de_ultima_Conversacion
-        if message_data.contexto_db_AccionesTomadas_en_ultima_conversacion:
-            client_info["acciones_tomadas"] = message_data.contexto_db_AccionesTomadas_en_ultima_conversacion
-        if message_data.contexto_db_AccionesPorTomar_al_terminar_la_ultima_conversacion:
-            client_info["acciones_por_tomar"] = message_data.contexto_db_AccionesPorTomar_al_terminar_la_ultima_conversacion
-        if message_data.contexto_db_InteresDetectado:
-            client_info["interes_detectado"] = message_data.contexto_db_InteresDetectado
-        if message_data.contexto_db_PresupuestoMencionado:
-            client_info["presupuesto_mencionado"] = message_data.contexto_db_PresupuestoMencionado
-        if message_data.contexto_db_EsClienteRecurrente:
-            client_info["es_cliente_recurrente"] = message_data.contexto_db_EsClienteRecurrente
-        if message_data.contexto_db_numero_de_interacciones:
-            client_info["numero_interacciones"] = message_data.contexto_db_numero_de_interacciones
+        
+        # Mapear campos importantes de contexto_db a client_info
+        if contexto_db:
+            # Información básica
+            if contexto_db.get("nombre"):
+                client_info["nombre"] = contexto_db["nombre"]
+            if contexto_db.get("whatsapp"):
+                client_info["telefono"] = contexto_db["whatsapp"]
+            if contexto_db.get("email"):
+                client_info["email"] = contexto_db["email"]
+            if contexto_db.get("empresa"):
+                client_info["empresa"] = contexto_db["empresa"]
+            if contexto_db.get("categoria_empresa"):
+                client_info["categoria_empresa"] = contexto_db["categoria_empresa"]
+            
+            # Información de conversación previa
+            if contexto_db.get("resumen_conversacion"):
+                client_info["resumen_anterior"] = contexto_db["resumen_conversacion"]
+            if contexto_db.get("acciones_tomadas"):
+                client_info["acciones_tomadas"] = contexto_db["acciones_tomadas"]
+            if contexto_db.get("acciones_por_tomar"):
+                client_info["acciones_por_tomar"] = contexto_db["acciones_por_tomar"]
+            
+            # Información comercial
+            if contexto_db.get("interes_detectado"):
+                client_info["interes_detectado"] = contexto_db["interes_detectado"]
+            if contexto_db.get("presupuesto"):
+                client_info["presupuesto_mencionado"] = contexto_db["presupuesto"]
+            if contexto_db.get("es_recurrente"):
+                client_info["es_cliente_recurrente"] = contexto_db["es_recurrente"]
+            if contexto_db.get("num_interacciones"):
+                client_info["numero_interacciones"] = contexto_db["num_interacciones"]
+            if contexto_db.get("urgencia"):
+                client_info["urgencia"] = contexto_db["urgencia"]
+            if contexto_db.get("sentimiento"):
+                client_info["sentimiento"] = contexto_db["sentimiento"]
         
         # Guardar en estado
         TEXT_CHAT_STATE[conversation_id]["client_info"] = client_info
         
+        logger.info(f"📝 Client info construido con {len(client_info)} campos: {list(client_info.keys())}")
     else:
-        logger.info(f"Interacción posterior - sin contexto para {conversation_id}")
+        logger.info(f"↩️ Interacción posterior para {conversation_id}")
         client_info = None  # NO usar contexto en mensajes posteriores
     
-    # Limitar historial a 20 mensajes
-    if len(conversation_histories[conversation_id]) > 20:
-        conversation_histories[conversation_id] = conversation_histories[conversation_id][-20:]
-    
+    # ===== PASO 6: GESTIONAR HISTORIAL =====
     history = conversation_histories[conversation_id]
-    # Agregar a historial completo
+    
+    # Limitar historial a 20 mensajes
+    if len(history) > 20:
+        history = history[-20:]
+        conversation_histories[conversation_id] = history
+    
+    # Agregar mensaje del usuario
     full_conversation_histories[conversation_id].append({"role": "user", "content": current_message})
-    # Agregar a historial recortado
     history.append({"role": "user", "content": current_message})
     
-    # Actualizar estado de conversación para timeouts/pulsos
-    state = TEXT_CHAT_STATE.get(conversation_id) or {
-        "pulse_sent": False,
-        "ended": False,
-        "client_info": {},
-    }
+    # ===== PASO 7: ACTUALIZAR CONTADORES =====
+    state = TEXT_CHAT_STATE[conversation_id]
     state["last_activity_ts"] = time.time()
     
-    # ===== AGREGAR ESTE BLOQUE NUEVO =====
-    # Actualizar contadores
     if "message_count" not in state:
         state["message_count"] = {"user": 0, "assistant": 0}
         state["word_count"] = {"user": 0, "assistant": 0}
     
     state["message_count"]["user"] += 1
     state["word_count"]["user"] += len(current_message.split())
-    # ===== FIN DEL BLOQUE NUEVO =====
     
-    TEXT_CHAT_STATE[conversation_id] = state
-
-    # client_info ya se configuró arriba según si es primera interacción o no
-
-    # Procesar con IA de texto
+    # ===== PASO 8: PROCESAR CON IA =====
     try:
         response_data = await process_text_message(
             user_id=user_id,
@@ -427,10 +444,9 @@ async def receive_n8n_message(message_data: N8NMessage):
         ai_reply = response_data.get("reply_text", "No pude obtener una respuesta.")
         status = response_data.get("status", "success")
         
-        # Log de respuesta del agente
         logger.info(f"🤖 [AGENTE] {user_id}: '{ai_reply}'")
         
-        # Log de herramientas usadas
+        # Log de herramientas
         tools_used = response_data.get("tools_used", [])
         if tools_used:
             logger.info(f"🔧 [HERRAMIENTAS] {user_id} usó: {', '.join(tools_used)}")
@@ -441,32 +457,29 @@ async def receive_n8n_message(message_data: N8NMessage):
         ai_reply = "Hubo un error procesando tu mensaje. Por favor intenta de nuevo."
         status = "error"
     
-    # Agregar respuesta al historial
+    # ===== PASO 9: AGREGAR RESPUESTA AL HISTORIAL =====
     if ai_reply:
-        # Agregar a historial completo
         full_conversation_histories[conversation_id].append({"role": "assistant", "content": ai_reply})
-        # Agregar a historial recortado
         history.append({"role": "assistant", "content": ai_reply})
         
-        # ===== AGREGAR ESTE BLOQUE NUEVO =====
         # Actualizar contadores de respuesta
         state["message_count"]["assistant"] += 1
         state["word_count"]["assistant"] += len(ai_reply.split())
-        # ===== FIN DEL BLOQUE NUEVO =====
     
-    # Si la IA solicitó terminar la conversación, disparar cierre
+    # ===== PASO 10: DETECTAR FIN DE CONVERSACIÓN =====
     end_chat = bool(response_data.get("end_chat"))
     end_reason = response_data.get("end_reason")
+    
     if end_chat and not state.get("ended"):
         state["ended"] = True
         try:
             await _end_text_conversation(conversation_id, state, reason=end_reason or "assistant_requested_end")
         except Exception as e:
             logger.error(f"Error en _end_text_conversation: {e}", exc_info=True)
-
-    logger.info(f"[LATENCIA] Mensaje de texto procesado en {1000*(time.perf_counter()-t0):.1f} ms")
     
-    # ========== NUEVO: AGREGAR CONVERSACIÓN COMPLETA A LA RESPUESTA ==========
+    logger.info(f"[LATENCIA] Mensaje procesado en {1000*(time.perf_counter()-t0):.1f} ms")
+    
+    # ===== PASO 11: RETORNAR RESPUESTA =====
     return {
         "reply_text": ai_reply,
         "status": status,
@@ -810,14 +823,13 @@ async def _send_text_pulse(conversation_id: str, state: Dict[str, Any]) -> None:
 
 async def _end_text_conversation(conversation_id: str, state: Dict[str, Any], reason: str) -> None:
     """
-    Envía a n8n el resumen simplificado de la conversación.
+    Envía a n8n el resumen completo de la conversación con TODA la metadata.
     """
-    # Agregar mensaje final de cierre al historial
+    # Agregar mensaje final
     if conversation_id in conversation_histories:
         final_message = "Ahora cerraré nuestra sesión. ¡Gracias! 😊"
         final_message_obj = {"role": "assistant", "content": final_message}
         
-        # Agregar a ambos historiales
         full_conversation_histories[conversation_id].append(final_message_obj)
         conversation_histories[conversation_id].append(final_message_obj)
         
@@ -826,27 +838,63 @@ async def _end_text_conversation(conversation_id: str, state: Dict[str, Any], re
     url = "https://n8n.aissistantpros.tech/webhook/conversation/end"
     history = full_conversation_histories.get(conversation_id, [])
     
-    # Calcular timestamps
+    # Calcular timestamps y duración
     first_ts = state.get("first_message_ts", time.time())
     last_ts = state.get("last_activity_ts", time.time())
+    duration_seconds = int(last_ts - first_ts)
+    duration_minutes = round(duration_seconds / 60, 2)
     
-    # Preparar payload simplificado
+    # Extraer metadata del user_profile
+    metadata = state.get("metadata", {})
+    plataforma_info = state.get("plataforma_info", {})
+    
+    # Preparar payload COMPLETO con toda la metadata
     payload = {
+        # Identificadores
         "conversation_id": conversation_id,
-        "canal": state.get("platform"),
-        "telefono": state.get("metadata", {}).get("phone"),
-        "nombre": state.get("metadata", {}).get("user_name"),
-        "email": state.get("metadata", {}).get("email"),
-        "os": state.get("metadata", {}).get("os"),
-        "browser": state.get("metadata", {}).get("browser"),
-        "source_url": state.get("metadata", {}).get("source_url"),
+        "canal": state.get("canal"),
+        
+        # Información del usuario (desde user_profile)
+        "telefono": metadata.get("telefono"),
+        "nombre": metadata.get("nombre_completo"),
+        "email": metadata.get("email"),
+        "user_id_canal": metadata.get("user_id_canal"),
+        
+        # IDs específicos de cada canal (desde user_profile.ids_canales)
+        "facebook_id": metadata.get("ids_canales", {}).get("facebook"),
+        "whatsapp_id": metadata.get("ids_canales", {}).get("whatsapp"),
+        "instagram_id": metadata.get("ids_canales", {}).get("instagram"),
+        
+        # Información de plataforma (desde plataforma_info)
+        "os": plataforma_info.get("sistema_operativo"),
+        "browser": plataforma_info.get("navegador"),
+        "plataforma": plataforma_info.get("plataforma"),
+        "timezone": plataforma_info.get("timezone"),
+        "language": plataforma_info.get("language"),
+        
+        # Origen y contexto
+        "source_url": state.get("origen_url"),
+        "timestamp_inicio": state.get("timestamp_inicio"),
+        
+        # Historial completo de la conversación
         "history": history,
+        
+        # Timestamps y duración
         "fecha_inicio": datetime.fromtimestamp(first_ts).isoformat(),
-        "fecha_fin": datetime.fromtimestamp(last_ts).isoformat()
+        "fecha_fin": datetime.fromtimestamp(last_ts).isoformat(),
+        "duracion_segundos": duration_seconds,
+        "duracion_minutos": duration_minutes,
+        
+        # Métricas de la conversación
+        "message_count": state.get("message_count", {}),
+        "word_count": state.get("word_count", {}),
+        
+        # Razón de cierre
+        "end_reason": reason
     }
     
-    logger.info(f"📤 Enviando resumen de conversación {conversation_id} a n8n")
-    logger.info(f"   └─ Mensajes: {len(history)}")
+    logger.info(f"📤 Enviando resumen completo de {conversation_id} a n8n")
+    logger.info(f"   └─ Mensajes: {len(history)}, Duración: {duration_minutes} min, Canal: {state.get('canal')}")
     
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -854,7 +902,7 @@ async def _end_text_conversation(conversation_id: str, state: Dict[str, Any], re
             if resp.status_code >= 300:
                 logger.error(f"End webhook status {resp.status_code}: {resp.text[:200]}")
             else:
-                logger.info(f"✅ Resumen enviado a n8n para {conversation_id}")
+                logger.info(f"✅ Resumen completo enviado a n8n para {conversation_id}")
     except Exception as e:
         logger.error(f"Error enviando resumen a n8n: {e}")
     
