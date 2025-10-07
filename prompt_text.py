@@ -157,9 +157,21 @@ La última vez platicamos sobre el agente de voz para automatizar las reservas d
 # FLUJO DE CONVERSACIÓN OBLIGATORIO (SIGUE ESTOS PASOS EN ORDEN)
 
 ### FASE 1: CONEXIÓN Y PROPÓSITO
-1.  **Saludo inicial:** Saluda de manera amigable y explica que eres un agente de IA que le va a dar información y ayudar a conocer más los productos y servicios.
-2.  **Pregunta el nombre:** Pide el nombre para dirigirse a la persona por su nombre.
-3.  **Pide número de contacto:** SIEMPRE pregunta un número celular para contacto.
+
+⚠️ **IMPORTANTE:** Revisa primero si en "DATOS DEL USUARIO ACTUAL" ya tienes información. Si la tienes, ÚSALA y salta los pasos correspondientes.
+
+1.  **Saludo inicial:** 
+    - ✅ Si tienes su nombre: "¡Hola [Nombre]! 😊 Soy Alex de IA Factory Cancún..."
+    - ❌ Si NO tienes su nombre: "¡Hola! 😊 Soy Alex de IA Factory Cancún..."
+    
+2.  **Pregunta el nombre:** 
+    - ✅ SOLO pregunta si NO aparece en "DATOS DEL USUARIO ACTUAL"
+    - ❌ Si YA tienes el nombre, SALTA este paso completamente
+    
+3.  **Pide número de contacto:** 
+    - ✅ SOLO pregunta si NO aparece en "DATOS DEL USUARIO ACTUAL"
+    - ❌ Si YA tienes el teléfono, SALTA este paso (podrás confirmarlo después si lo necesitas)
+    
 4.  **Descubre el Motivo:** Haz una pregunta abierta sobre su negocio.
 
 ### FASE 2: DESCUBRIMIENTO PROFUNDO (LA MÁS IMPORTANTE)
@@ -398,65 +410,100 @@ def generate_openai_prompt(
     # Construir el prompt del sistema
     system_content = f"# FECHA Y HORA ACTUAL\nHoy es {fecha_actual}. Hora actual en Cancún: {now.strftime('%H:%M')}.\nIMPORTANTE: Todas las citas deben ser para {now.year} o años posteriores.\n\n"
 
-    # ========== NUEVO: AGREGAR CONTEXTO DEL CLIENTE ==========
+    # ========== CONTEXTO DEL USUARIO ACTUAL ==========
     if client_info:
-        system_content += "\n# 🎯 INFORMACIÓN DEL CLIENTE (USAR ESTRATÉGICAMENTE)\n"
-        system_content += "**INSTRUCCIONES CRÍTICAS PARA USAR ESTA INFORMACIÓN:**\n"
-        system_content += "1. **NO PREGUNTES lo que ya sabemos** - Si tenemos el nombre, saluda con él. Si tenemos teléfono, confirma: 'tengo registrado el [número] ¿lo puedo usar?'\n"
-        system_content += "2. **RECONOCE al cliente** - Si es cliente recurrente, salúdalo como tal: 'Gracias por comunicarte otra vez [nombre]'\n"
-        system_content += "3. **REFERENCIA el contexto previo** - Si hay resumen anterior, menciónalo: 'La última vez platicamos sobre [tema] ¿cómo te fue con eso?'\n"
-        system_content += "4. **CONFIRMA antes de usar** - Siempre confirma datos sensibles antes de usarlos en acciones\n\n"
+        system_content += "\n\n"
+        system_content += "█" * 80 + "\n"
+        system_content += "█" + " " * 78 + "█\n"
+        system_content += "█" + " " * 20 + "🎯 DATOS DEL USUARIO ACTUAL 🎯" + " " * 28 + "█\n"
+        system_content += "█" + " " * 78 + "█\n"
+        system_content += "█" * 80 + "\n\n"
         
         # Información básica del cliente
-        if client_info.get('nombre'):
-            system_content += f"## Nombre del Cliente\n**{client_info['nombre']}** ← ¡Úsalo para saludar!\n\n"
+        tiene_nombre = bool(client_info.get('nombre'))
+        tiene_telefono = bool(client_info.get('telefono'))
+        tiene_email = bool(client_info.get('email'))
+        tiene_resumen = bool(client_info.get('resumen_anterior'))
         
-        if client_info.get('telefono'):
-            system_content += f"## Teléfono Registrado\n{client_info['telefono']} ← Confirma antes de usar: '¿Puedo usar el [número] que tengo registrado?'\n\n"
+        system_content += "⚠️  LEE ESTO ANTES DE RESPONDER:\n\n"
         
-        if client_info.get('email'):
-            system_content += f"## Email\n{client_info['email']}\n\n"
+        # Instrucciones específicas según lo que tengamos
+        if tiene_nombre:
+            system_content += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            system_content += f"✅ NOMBRE DEL USUARIO: {client_info['nombre']}\n"
+            system_content += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            system_content += f"   🔹 ÚSALO INMEDIATAMENTE para saludar: '¡Hola {client_info['nombre']}! 😊'\n"
+            system_content += f"   🔹 DIRÍGETE A ÉL/ELLA POR SU NOMBRE durante toda la conversación\n"
+            system_content += f"   ❌ PROHIBIDO preguntar: '¿Cómo te llamas?' o '¿Cuál es tu nombre?'\n\n"
+        
+        if tiene_telefono:
+            system_content += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            system_content += f"✅ TELÉFONO REGISTRADO: {client_info['telefono']}\n"
+            system_content += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            system_content += f"   🔹 Si lo necesitas, CONFIRMA: 'Tengo el {client_info['telefono']}, ¿lo uso?'\n"
+            system_content += f"   ❌ PROHIBIDO preguntar: '¿Cuál es tu número?' o '¿Me das tu teléfono?'\n\n"
+        
+        if tiene_email:
+            system_content += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            system_content += f"✅ EMAIL REGISTRADO: {client_info['email']}\n"
+            system_content += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            system_content += f"   🔹 Si lo necesitas, confírmalo antes de usar\n"
+            system_content += f"   ❌ PROHIBIDO preguntar por el email de nuevo\n\n"
+        
+        if tiene_resumen:
+            system_content += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            system_content += f"⭐ ESTE ES UN CLIENTE RECURRENTE ⭐\n"
+            system_content += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            system_content += f"   🔹 SALÚDALO reconociéndolo: 'Qué gusto saludarte de nuevo'\n"
+            system_content += f"   🔹 MENCIONA la conversación anterior en tu saludo\n"
+            system_content += f"   ❌ PROHIBIDO actuar como si fuera la primera vez\n\n"
         
         # Información empresarial
         if client_info.get('empresa'):
-            system_content += f"## Empresa\n{client_info['empresa']}"
+            system_content += f"━━━ Empresa: {client_info['empresa']}"
             if client_info.get('categoria_empresa'):
                 system_content += f" ({client_info['categoria_empresa']})"
             system_content += "\n\n"
         
-        # Contexto de conversación previa (LO MÁS IMPORTANTE)
+        # Contexto de conversación previa
         if client_info.get('resumen_anterior'):
-            system_content += f"## 💬 CONVERSACIÓN ANTERIOR\n"
+            system_content += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            system_content += f"💬 CONVERSACIÓN ANTERIOR:\n"
+            system_content += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             system_content += f"{client_info['resumen_anterior']}\n"
-            system_content += f"**→ IMPORTANTE:** Este es un cliente recurrente. Salúdalo como tal y pregunta cómo le fue con lo que discutieron.\n\n"
+            system_content += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            system_content += f"   ⚡ ACCIÓN REQUERIDA: Haz referencia a este contexto en tu saludo\n\n"
         
         if client_info.get('acciones_tomadas'):
-            system_content += f"## ✅ Acciones que se tomaron antes\n{client_info['acciones_tomadas']}\n\n"
+            system_content += f"━━━ ✅ Acciones tomadas: {client_info['acciones_tomadas']}\n\n"
         
         if client_info.get('acciones_por_tomar'):
-            system_content += f"## 📋 Acciones pendientes\n{client_info['acciones_por_tomar']}\n\n"
+            system_content += f"━━━ 📋 Acciones pendientes: {client_info['acciones_por_tomar']}\n\n"
         
         # Información comercial
         if client_info.get('interes_detectado'):
-            system_content += f"## 🎯 Interés detectado\n{client_info['interes_detectado']}\n\n"
+            system_content += f"━━━ 🎯 Interés: {client_info['interes_detectado']}\n\n"
         
         if client_info.get('presupuesto_mencionado'):
-            system_content += f"## 💰 Presupuesto mencionado\n${client_info['presupuesto_mencionado']}\n\n"
+            system_content += f"━━━ 💰 Presupuesto: ${client_info['presupuesto_mencionado']}\n\n"
         
         # Información de relación
         if client_info.get('es_cliente_recurrente'):
-            system_content += f"## ⭐ Cliente Recurrente\n{client_info['es_cliente_recurrente']}\n\n"
+            system_content += f"━━━ ⭐ Tipo: {client_info['es_cliente_recurrente']}\n\n"
         
         if client_info.get('numero_interacciones'):
-            system_content += f"## 📊 Número de interacciones previas\n{client_info['numero_interacciones']}\n\n"
+            system_content += f"━━━ 📊 Interacciones previas: {client_info['numero_interacciones']}\n\n"
         
         if client_info.get('urgencia'):
-            system_content += f"## ⚡ Nivel de urgencia\n{client_info['urgencia']}\n\n"
+            system_content += f"━━━ ⚡ Urgencia: {client_info['urgencia']}\n\n"
         
         if client_info.get('sentimiento'):
-            system_content += f"## 😊 Sentimiento detectado\n{client_info['sentimiento']}\n\n"
+            system_content += f"━━━ 😊 Sentimiento: {client_info['sentimiento']}\n\n"
         
-        system_content += "---\n\n"
+        system_content += "\n"
+        system_content += "█" * 80 + "\n"
+        system_content += "█" + " " * 10 + "⬆️  ESTOS DATOS TIENEN PRIORIDAD SOBRE TODO  ⬆️" + " " * 12 + "█\n"
+        system_content += "█" * 80 + "\n\n"
     # ========== FIN DEL BLOQUE ==========
 
     system_content += PROMPT_UNIFICADO
@@ -506,7 +553,7 @@ def generate_openai_prompt(
         logger.info(system_content[:500] + "..." if len(system_content) > 500 else system_content)
         logger.info("=" * 80)
     else:
-        logger.info("ℹ️  Sin contexto de cliente - Primera interacción o usuario nuevo")
+        logger.info("💬 Mensaje subsecuente - Contexto disponible en historial de conversación")
     # ========== FIN DEL LOGGING ==========
 
     # Crear mensaje del sistema
