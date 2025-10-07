@@ -360,28 +360,62 @@ async def receive_n8n_message(message_data: N8NMessage):
             "timestamp_inicio": cleaned_data.get("timestamp")
         }
         
-        # ===== PASO 5: CONSTRUIR CLIENT_INFO DESDE CONTEXTO_DB =====
-        # SOLO en primera interacción, extraer contexto de la DB
-        contexto_db = cleaned_data.get("contexto_db", {})
+        # ===== PASO 5: CONSTRUIR CLIENT_INFO =====
+        # IMPORTANTE: Extraer datos de AMBAS fuentes:
+        # 1. user_profile (datos actuales del mensaje)
+        # 2. contexto_db (contexto histórico de Airtable)
+
         client_info = {}
-        
-        # Mapear campos importantes de contexto_db a client_info
+        user_profile = cleaned_data.get("user_profile", {})
+        contexto_db = cleaned_data.get("contexto_db", {})
+
+        # === PRIORIDAD 1: Datos básicos de user_profile (SIEMPRE presentes) ===
+        # Estos datos vienen del mensaje actual, SIEMPRE debemos usarlos
+        if user_profile:
+            if user_profile.get("nombre_completo"):
+                client_info["nombre"] = user_profile["nombre_completo"]
+                logger.debug(f"✅ Nombre extraído de user_profile: {client_info['nombre']}")
+            
+            if user_profile.get("telefono"):
+                client_info["telefono"] = user_profile["telefono"]
+                logger.debug(f"✅ Teléfono extraído de user_profile: {client_info['telefono']}")
+            
+            if user_profile.get("email"):
+                client_info["email"] = user_profile["email"]
+                logger.debug(f"✅ Email extraído de user_profile: {client_info['email']}")
+
+        # === PRIORIDAD 2: Contexto histórico de contexto_db ===
+        # Estos datos vienen de Airtable, SOLO si el usuario ya existía
         if contexto_db:
-            # Información básica
+            # IMPORTANTE: contexto_db puede SOBRESCRIBIR datos de user_profile
+            # si tiene info más completa o actualizada
+            
+            # Información básica (solo sobrescribir si está presente)
             if contexto_db.get("nombre"):
                 client_info["nombre"] = contexto_db["nombre"]
+                logger.debug(f"🔄 Nombre actualizado desde contexto_db: {client_info['nombre']}")
+            
             if contexto_db.get("whatsapp"):
-                client_info["telefono"] = contexto_db["whatsapp"]
+                # Solo actualizar teléfono si es diferente
+                if not client_info.get("telefono") or client_info["telefono"] != contexto_db["whatsapp"]:
+                    client_info["telefono"] = contexto_db["whatsapp"]
+                    logger.debug(f"🔄 Teléfono actualizado desde contexto_db: {client_info['telefono']}")
+            
             if contexto_db.get("email"):
                 client_info["email"] = contexto_db["email"]
+                logger.debug(f"🔄 Email actualizado desde contexto_db: {client_info['email']}")
+            
+            # Información empresarial
             if contexto_db.get("empresa"):
                 client_info["empresa"] = contexto_db["empresa"]
             if contexto_db.get("categoria_empresa"):
                 client_info["categoria_empresa"] = contexto_db["categoria_empresa"]
             
-            # Información de conversación previa
+            # Información de conversación previa (LA MÁS IMPORTANTE)
             if contexto_db.get("resumen_conversacion"):
                 client_info["resumen_anterior"] = contexto_db["resumen_conversacion"]
+                logger.info(f"💬 Contexto previo encontrado: {contexto_db['resumen_conversacion'][:100]}...")
+            
             if contexto_db.get("acciones_tomadas"):
                 client_info["acciones_tomadas"] = contexto_db["acciones_tomadas"]
             if contexto_db.get("acciones_por_tomar"):
@@ -400,10 +434,10 @@ async def receive_n8n_message(message_data: N8NMessage):
                 client_info["urgencia"] = contexto_db["urgencia"]
             if contexto_db.get("sentimiento"):
                 client_info["sentimiento"] = contexto_db["sentimiento"]
-        
+
         # Guardar en estado
         TEXT_CHAT_STATE[conversation_id]["client_info"] = client_info
-        
+
         logger.info(f"📝 Client info construido con {len(client_info)} campos: {list(client_info.keys())}")
     else:
         logger.info(f"↩️ Interacción posterior para {conversation_id}")
